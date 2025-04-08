@@ -26,4 +26,3 @@ chmod +x ./install_kafka.sh
 echo "Installing Kafka UI..."
 chmod +x ./install_kafka_ui.sh
 ./install_kafka_ui.sh
-

@@ -221,3 +221,6 @@ anthropic.env
 .env.local
 
 *.pyc
+
+#
+kubeconfig
