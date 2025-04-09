@@ -224,3 +224,5 @@ anthropic.env
 
 #
 kubeconfig
+
+.pre-commit-config.yaml

@@ -12,3 +12,25 @@ dependencies = [
 
 [tool.uv.workspace]
 members = ["services/trades"]
+
+[tool.ruff.lint]
+select = [
+  "F", # pyflakes rules
+  "C", # mccabe rules
+  "E", # pycodestyle error rules
+  "W", # pycodestyle warning rules
+  "B", # flake8-bugbear rules
+  "I", # isort rules
+]
+ignore = []
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pycodestyle]
+# Ignore overlong task comments
+ignore-overlong-task-comments = true
