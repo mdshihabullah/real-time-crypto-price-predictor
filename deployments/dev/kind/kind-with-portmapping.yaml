@@ -27,28 +27,42 @@ nodes:
           node-labels: "ingress-ready=true"
 
     extraPortMappings:
+    # HTTP ingress controller port mappings - enables access to ingress resources via localhost
     - containerPort: 80
       hostPort: 80
       protocol: TCP
 
+    # HTTPS ingress controller port mappings
     - containerPort: 443
       hostPort: 443
       protocol: TCP
 
+    # Kafka bootstrap server - maps the NodePort (31092) used by Kafka's external bootstrap service
+    # to localhost:9092, which is the standard Kafka port that client applications expect
     - containerPort: 31092
       hostPort: 9092
       listenAddress: "127.0.0.1"
       protocol: TCP
 
+    # Kafka broker 0 - maps the NodePort (31234) used by broker 0 to the same port on localhost
+    # Each broker needs its own dedicated port for external access
     - containerPort: 31234
       hostPort: 31234
       listenAddress: "127.0.0.1"
       protocol: TCP
 
+    # Kafka broker 1 - maps the NodePort (31235) used by broker 1 to the same port on localhost
     - containerPort: 31235
       hostPort: 31235
       listenAddress: "127.0.0.1"
 
+    # Kafka broker 2 - maps the NodePort (31236) used by broker 2 to the same port on localhost
     - containerPort: 31236
       hostPort: 31236
       listenAddress: "127.0.0.1"
+
+    # Structurizr Lite UI - maps the NodePort (30089) to localhost:8089 for accessing the Structurizr UI
+    - containerPort: 30089
+      hostPort: 8089
+      listenAddress: "127.0.0.1"
+      protocol: TCP

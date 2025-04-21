@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: SERVICE_NAME  # Replace with actual service name
+  labels:
+    app: SERVICE_NAME  # Replace with actual service name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: SERVICE_NAME  # Replace with actual service name
+  template:
+    metadata:
+      labels:
+        app: SERVICE_NAME  # Replace with actual service name
+    spec:
+      # Initialize container to set up directories with correct permissions
+      initContainers:
+      - name: init-state-dir
+        image: busybox
+        command: ['sh', '-c', 'mkdir -p /app/state && chmod 777 /app/state']
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+      containers:
+      - name: SERVICE_NAME  # Replace with actual service name
+        image: SERVICE_NAME:dev  # Replace with actual service name
+        imagePullPolicy: Never
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: kafka-e11b-kafka-bootstrap.kafka.svc.cluster.local:9092
+        # Add other environment variables as needed
+        - name: QUIX_STATE_DIRECTORY
+          value: "/app/state"
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+        # Add resource limits/requests as needed
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+      volumes:
+      - name: state-volume
+        # For development, use emptyDir
+        emptyDir: {}
+        # For production, consider using a PersistentVolumeClaim
+        # persistentVolumeClaim:
+        #  claimName: SERVICE_NAME-state-pvc 

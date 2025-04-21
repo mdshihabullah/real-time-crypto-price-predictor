@@ -1,22 +1,24 @@
-# Create an Application instance with Kafka configs
-
-from config import config
-from kraken_api import KrakenAPI, Trade
+"""Main module for the trades service"""
 from loguru import logger
 from quixstreams import Application
+
+from trades.config import config
+from trades.kraken_api import KrakenAPI, Trade
 
 
 def run(
     kafka_broker_address: str,
-    kafka_topic_name: str,
+    kafka_topic: str,
     kraken_api: KrakenAPI,
-):
+) -> None:
+    """Run the trades service
+    """
     app = Application(
         broker_address=kafka_broker_address,
     )
 
     # Define a topic "my_topic" with JSON serialization
-    topic = app.topic(name=kafka_topic_name, value_serializer="json")
+    topic = app.topic(name=kafka_topic, value_serializer="json")
 
     # Create a Producer instance
     with app.get_producer() as producer:
@@ -28,7 +30,7 @@ def run(
             for event in events:
                 # 2. Serialize an event using the defined Topic
                 message = topic.serialize(
-                    # key=event["id"],
+                    key=event.product_id,
                     value=event.to_dict()
                 )
 
@@ -36,12 +38,11 @@ def run(
                 producer.produce(
                     topic=topic.name,
                     value=message.value,
-                    # key=message.key
+                    key=message.key
                 )
 
                 logger.info(
-                    f"Produced message to topic {topic.name}\
-                            is {message.value}"
+                    f"key {message.key} and value {message.value}"
                 )
 
             # breakpoint()
@@ -53,6 +54,6 @@ if __name__ == "__main__":
 
     run(
         kafka_broker_address=config.kafka_broker_address,
-        kafka_topic_name=config.kafka_topic_name,
+        kafka_topic=config.kafka_topic,
         kraken_api=api,
     )

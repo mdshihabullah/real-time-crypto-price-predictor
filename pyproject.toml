@@ -5,13 +5,20 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "candles",
+    "confluent-kafka>=2.8.2",
     "loguru>=0.7.3",
     "quixstreams>=3.13.1",
+    "trades",
     "websocket-client>=1.8.0",
 ]
 
 [tool.uv.workspace]
-members = ["services/trades"]
+members = ["services/trades", "services/candles"]
+
+[tool.uv.sources]
+trades = { workspace = true }
+candles = { workspace = true }
 
 [tool.ruff.lint]
 select = [

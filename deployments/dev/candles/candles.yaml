@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: candles
+  labels:
+    app: candles
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: candles
+  template:
+    metadata:
+      labels:
+        app: candles
+    spec:
+      initContainers:
+      - name: init-state-dir
+        image: busybox
+        command: ['sh', '-c', 'mkdir -p /app/state && chmod 777 /app/state']
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+      containers:
+      - name: candles
+        image: candles:dev
+        imagePullPolicy: Never # Use the local image
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: kafka-e11b-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: KAFKA_INPUT_TOPIC
+          value: "trades"
+        - name: KAFKA_OUTPUT_TOPIC
+          value: "candles"
+        - name: KAFKA_CONSUMER_GROUP
+          value: "candles-consumer-group"
+        - name: WINDOW_IN_SEC
+          value: "60"
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+      volumes:
+      - name: state-volume
+        emptyDir: {}
