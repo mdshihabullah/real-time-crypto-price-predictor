@@ -2,13 +2,13 @@
 
 The Crypto Price Prediction System leverages a modern technology stack to enable real-time data processing, machine learning, and serving predictions. This document outlines the key technologies used and their roles within the system.
 
-![Technology Stack](images/15.png)
+
 
 ## Core Infrastructure
 
 ### Kubernetes
 
-![Kubernetes](images/14.png)
+![Kubernetes](images/17.png)
 
 Kubernetes serves as the orchestration platform for the entire system, providing:
 - Container orchestration
@@ -20,11 +20,13 @@ Kubernetes serves as the orchestration platform for the entire system, providing
 
 All microservices are deployed as Kubernetes deployments, with appropriate resource requests and limits.
 
+![Kafka](images/18.png)
+
 ## Messaging
 
 ### Apache Kafka & Strimzi
 
-![Kafka](images/15.png)
+
 
 Kafka serves as the central nervous system of the architecture, providing:
 - Reliable message delivery between services
@@ -38,8 +40,6 @@ Strimzi is used as the Kafka operator within Kubernetes, simplifying the deploym
 ## Data Storage
 
 ### RisingWave
-
-![RisingWave](images/15.png)
 
 RisingWave serves as the feature store, providing:
 - Stream processing for feature computation
@@ -63,7 +63,7 @@ Elasticsearch stores predictions and monitoring data, providing:
 
 ### MLflow
 
-![MLflow](images/15.png)
+![MLflow](images/16.png)
 
 MLflow serves as the model registry, providing:
 - Model versioning and metadata
@@ -72,11 +72,22 @@ MLflow serves as the model registry, providing:
 - Deployment management
 - Performance metrics storage
 
+## Visualization
+
+### Grafana
+
+Grafana provides visualization capabilities:
+- Real-time dashboards
+- Prediction visualization
+- System monitoring
+- Custom alerts
+- User-friendly interface
+
 ## Service Implementation
 
 ### Python
 
-![Python](images/13.png)
+![Python](images/14.png)
 
 Python is the primary language for most services, leveraging:
 - Rich ecosystem of data science libraries
@@ -87,7 +98,7 @@ Python is the primary language for most services, leveraging:
 
 ### Rust
 
-![Rust](images/14.png)
+![Rust](images/15.png)
 
 Rust is used for the Predictions API service, providing:
 - High performance
@@ -95,18 +106,7 @@ Rust is used for the Predictions API service, providing:
 - Low latency
 - Efficient resource usage
 
-## Visualization
 
-### Grafana
-
-![Grafana](images/15.png)
-
-Grafana provides visualization capabilities:
-- Real-time dashboards
-- Prediction visualization
-- System monitoring
-- Custom alerts
-- User-friendly interface
 
 ## External Components
 
@@ -121,7 +121,7 @@ A large language model assists the Sentiment Extractor in analyzing text, provid
 
 ### External APIs
 
-- **Trades API**: Provides real-time cryptocurrency trade data
-- **News API**: Provides financial news and social media content
+- **Trades API**: Provides real-time cryptocurrency trade data via websocket from https://docs.kraken.com/api/
+- **News API**: Provides financial news and social media content 
 
 This technology stack is designed to handle real-time data processing, machine learning, and serving predictions in a scalable, resilient, and observable manner. 

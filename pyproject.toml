@@ -8,17 +8,20 @@ dependencies = [
     "candles",
     "confluent-kafka>=2.8.2",
     "loguru>=0.7.3",
+    "pyyaml>=6.0.2",
     "quixstreams>=3.13.1",
+    "technical_indicators",
     "trades",
     "websocket-client>=1.8.0",
 ]
 
 [tool.uv.workspace]
-members = ["services/trades", "services/candles"]
+members = ["services/trades", "services/candles", "services/technical_indicators"]
 
 [tool.uv.sources]
 trades = { workspace = true }
 candles = { workspace = true }
+technical-indicators = { workspace = true }
 
 [tool.ruff.lint]
 select = [

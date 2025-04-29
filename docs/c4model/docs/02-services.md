@@ -2,7 +2,7 @@
 
 The Crypto Price Prediction System consists of seven core microservices, each with specific responsibilities within the overall architecture:
 
-![Seven Microservices](images/12.png)
+![Seven Microservices](images/13.png)
 
 ## 1. Sentiment Extractor
 

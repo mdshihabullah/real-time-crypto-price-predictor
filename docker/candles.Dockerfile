@@ -1,35 +1,56 @@
-# Use a Python image with uv pre-installed
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+########################  Stage 1 – builder  ##########################
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-# Install the project into `/app`
+# Set uv configuration for better performance and Docker compatibility
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_SYSTEM_PYTHON=1
+
+# Install build dependencies for confluent-kafka
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    librdkafka-dev \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
 WORKDIR /app
 
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
+# Copy the application source
+COPY services/candles/ .
 
-# Copy from the cache instead of linking since it's a mounted volume
-ENV UV_LINK_MODE=copy
-
-# Install the project's dependencies using the lockfile and settings
+# Install dependencies using uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
+    uv pip install --system -e .
 
-# Then, add the rest of the project source code and install it
-# Installing separately from its dependencies allows optimal layer caching
-ADD . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+# Create state directory with proper permissions
+RUN mkdir -p /app/state && chmod -R 777 /app/state
 
-# Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
+########################  Stage 2 – runtime  ##########################
+FROM python:3.12-slim-bookworm
 
-# Reset the entrypoint, don't invoke `uv`
-ENTRYPOINT []
+WORKDIR /app
 
-# Run the FastAPI application by default
-# Uses `fastapi dev` to enable hot-reloading when the `watch` sync occurs
-# Uses `--host 0.0.0.0` to allow access from outside the container
-CMD ["uv", "run", "/app/services/candles/src/candles/main.py"]
-# CMD ["/bin/bash","-c","sleep 999999"]
+# Install runtime dependencies for confluent-kafka
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    librdkafka1 \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+
+# Copy application files
+COPY --from=builder /app/ /app/
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Create and use non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Use exec form for ENTRYPOINT to avoid shell requirement
+ENTRYPOINT ["python", "/app/src/candles/main.py"]

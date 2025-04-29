@@ -1,0 +1,94 @@
+---
+# KafkaNodePool for KRaft mode
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: crypto-kafka-cluster
+spec:
+  replicas: 2
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi
+        deleteClaim: false
+        kraftMetadata: shared
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  jvmOptions:
+    -Xms: 1024m
+    -Xmx: 1024m
+---
+# Kafka Cluster
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: crypto-kafka-cluster
+  namespace: kafka
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: 3.9.0
+    metadataVersion: 3.9-IV0
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: external
+        port: 9093
+        type: nodeport
+        tls: false
+    config:
+      offsets.topic.replication.factor: 2
+      transaction.state.log.replication.factor: 2
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 2
+      min.insync.replicas: 1
+      auto.create.topics.enable: "true"
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+# Kafka Topics
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trades
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: crypto-kafka-cluster
+spec:
+  partitions: 2
+  replicas: 2
+  config:
+    retention.ms: 604800000  # 7 days
+    segment.bytes: 1073741824  # 1 GB
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: candles
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: crypto-kafka-cluster
+spec:
+  partitions: 2
+  replicas: 2
+  config:
+    retention.ms: 604800000  # 7 days
+    segment.bytes: 1073741824  # 1 GB 

@@ -7,7 +7,12 @@ authors = [
     { name = "Paulescu", email = "plabartabajo@gmail.com" } 
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "confluent-kafka>=2.8.2",
+    "loguru>=0.7.3",
+    "quixstreams>=3.13.1",
+    "websocket-client>=1.8.0",
+]
 
 [build-system]
 requires = ["hatchling"]

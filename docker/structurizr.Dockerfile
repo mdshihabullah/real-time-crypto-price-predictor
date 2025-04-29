@@ -1,10 +1,15 @@
 # Use the official Structurizr Lite as base
 FROM structurizr/lite:latest
 
-# Add metadata
-LABEL maintainer="RWMLOps"
-LABEL description="C4 model documentation for Real-time Trading System"
-LABEL version="0.0.1"
+# Add OCI-compliant labels
+LABEL org.opencontainers.image.title="Structurizr Documentation"
+LABEL org.opencontainers.image.description="C4 model documentation for Real-time Trading System"
+LABEL org.opencontainers.image.vendor="RWMLOps"
+LABEL org.opencontainers.image.authors="mdshihabullah"
+LABEL org.opencontainers.image.source="https://github.com/mdshihabullah/real-time-crypto-price-predictor"
+LABEL org.opencontainers.image.url="https://github.com/mdshihabullah/real-time-crypto-price-predictor"
+LABEL org.opencontainers.image.version="0.0.1"
+LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /usr/local/structurizr
 

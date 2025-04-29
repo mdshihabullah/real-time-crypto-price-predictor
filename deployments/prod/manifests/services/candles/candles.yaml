@@ -1,11 +1,31 @@
+---
+# Candles Service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: candles
+  namespace: services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: candles
+  namespace: services
+spec:
+  selector:
+    app: candles
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: candles
-  labels:
-    app: candles
+  namespace: services
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: candles
@@ -14,6 +34,7 @@ spec:
       labels:
         app: candles
     spec:
+      serviceAccountName: candles
       initContainers:
       - name: init-state-dir
         image: busybox
@@ -23,11 +44,11 @@ spec:
           mountPath: /app/state
       containers:
       - name: candles
-        image: candles:dev
-        imagePullPolicy: Never # Use the local image
+        image: ${CANDLES_IMAGE}
+        imagePullPolicy: Always
         env:
         - name: KAFKA_BROKER_ADDRESS
-          value: kafka-e11b-kafka-bootstrap.kafka.svc.cluster.local:9092
+          value: "crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
         - name: KAFKA_INPUT_TOPIC
           value: "trades"
         - name: KAFKA_OUTPUT_TOPIC
@@ -36,11 +57,22 @@ spec:
           value: "candles-consumer-group"
         - name: WINDOW_IN_SEC
           value: "60"
-        - name: EMIT_INTERMEDIATE_CANDLES
-          value: "True"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: STATE_DIR
+          value: "/app/state"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
         volumeMounts:
         - name: state-volume
           mountPath: /app/state
+        ports:
+        - containerPort: 8000
       volumes:
       - name: state-volume
         emptyDir: {}

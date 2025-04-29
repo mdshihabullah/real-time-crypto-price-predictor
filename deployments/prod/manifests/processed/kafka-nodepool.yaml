@@ -1,0 +1,31 @@
+# KafkaNodePool for KRaft mode
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: crypto-kafka-cluster
+spec:
+  replicas: 2
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi
+        deleteClaim: false
+        kraftMetadata: shared
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  jvmOptions:
+    -Xms: 1024m
+    -Xmx: 1024m

@@ -59,3 +59,16 @@ fi
 # 8. Port forward Kafka UI
 echo "Port forwarding Kafka UI to localhost:19092..."
 kubectl port-forward -n kafka svc/kafka-ui 19092:8080
+
+# 9. Install RisingWaves
+echo "Installing RisingWaves..."
+chmod +x ./install_risingwaves.sh
+./install_risingwaves.sh
+
+
+# 10. Install Grafana
+echo "Installing Grafana..."
+chmod +x ./install_grafana.sh
+./install_grafana.sh
+
+

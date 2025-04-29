@@ -70,7 +70,7 @@ The inference pipeline generates real-time predictions:
 
 The system continuously monitors prediction accuracy:
 
-![Prediction Error Monitoring](images/11.png)
+![Prediction Error Monitoring](images/12.png)
 
 1. The Model Error Monitor compares predictions with actual prices
 2. Error metrics are calculated and stored in Elasticsearch

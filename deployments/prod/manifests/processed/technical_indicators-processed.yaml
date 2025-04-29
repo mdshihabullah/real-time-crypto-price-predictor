@@ -1,0 +1,78 @@
+---
+# technical-indicators Service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: technical-indicators
+  namespace: services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: technical-indicators
+  namespace: services
+spec:
+  selector:
+    app: technical-indicators
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: technical-indicators
+  namespace: services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: technical-indicators
+  template:
+    metadata:
+      labels:
+        app: technical-indicators
+    spec:
+      serviceAccountName: technical-indicators
+      initContainers:
+      - name: init-state-dir
+        image: busybox
+        command: ['sh', '-c', 'mkdir -p /app/state && chmod 777 /app/state']
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+      containers:
+      - name: technical-indicators
+        image: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/technical_indicators:beta-27-04-2025-94df373
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: "crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: KAFKA_INPUT_TOPIC
+          value: "candles"
+        - name: KAFKA_OUTPUT_TOPIC
+          value: "technical_indicators"
+        - name: KAFKA_CONSUMER_GROUP
+          value: "ta_indicators_consumer_group"
+        - name: WINDOW_IN_SEC
+          value: "60"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: STATE_DIR
+          value: "/app/state"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: state-volume
+          mountPath: /app/state
+        ports:
+        - containerPort: 8000
+      volumes:
+      - name: state-volume
+        emptyDir: {}

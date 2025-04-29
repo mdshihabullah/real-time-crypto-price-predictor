@@ -1,0 +1,52 @@
+---
+# Structurizr Service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: structurizr
+  namespace: structurizr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: structurizr
+  namespace: structurizr
+spec:
+  selector:
+    app: structurizr
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: structurizr
+  namespace: structurizr
+  labels:
+    app: structurizr
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: structurizr
+  template:
+    metadata:
+      labels:
+        app: structurizr
+    spec:
+      serviceAccountName: structurizr
+      containers:
+      - name: structurizr
+        image: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/structurizr:beta-22-04-2025-94df373
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+---
+# We don't need a PVC since we're not mounting a volume
+# This avoids overriding the built-in files in the custom image 

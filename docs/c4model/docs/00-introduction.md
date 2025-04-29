@@ -32,7 +32,7 @@ The architecture follows key principles including:
 
 The system consists of seven core microservices working together to deliver predictions:
 
-![Microservices Overview](images/12.png)
+![Microservices Overview](images/13.png)
 
 1. **Sentiment Extractor**: Analyzes news and social media content
 2. **Trade to OHLC**: Converts raw trade data to candles

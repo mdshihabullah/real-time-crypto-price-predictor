@@ -8,3 +8,4 @@
 **/tmp
 
 .mypy_cache/**/*
+PAT_token

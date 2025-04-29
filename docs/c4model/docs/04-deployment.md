@@ -2,7 +2,7 @@
 
 The Crypto Price Prediction System is deployed on Kubernetes, providing a scalable, resilient, and manageable infrastructure.
 
-![Kubernetes Deployment](images/14.png)
+![Kubernetes Deployment](images/17.png)
 
 ## Deployment Architecture
 

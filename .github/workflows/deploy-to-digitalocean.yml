@@ -1,0 +1,132 @@
+name: Deploy to DigitalOcean Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+      - 'docs/c4model/**'
+      - 'deployments/prod/**'
+  workflow_dispatch:
+
+jobs:
+  determine-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      trades_changed: ${{ steps.filter.outputs.trades }}
+      candles_changed: ${{ steps.filter.outputs.candles }}
+      structurizr_changed: ${{ steps.filter.outputs.structurizr }}
+      manifests_changed: ${{ steps.filter.outputs.manifests }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Filter changes
+      uses: dorny/paths-filter@v2
+      id: filter
+      with:
+        filters: |
+          trades:
+            - 'services/trades/**'
+          candles: 
+            - 'services/candles/**'
+          structurizr:
+            - 'docs/c4model/**'
+          manifests:
+            - 'deployments/prod/**'
+
+  build-and-deploy:
+    needs: determine-changes
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up DigitalOcean kubeconfig
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.DIGITALOCEAN_KUBECONFIG }}" > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+        
+    - name: Build and push trades image if changed
+      if: needs.determine-changes.outputs.trades_changed == 'true'
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: docker/service.prod.Dockerfile
+        push: true
+        build-args: |
+          SERVICE_NAME=trades
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VERSION=${{ github.sha }}
+          SOURCE_COMMIT=${{ github.sha }}
+        tags: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/trades:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        
+    - name: Deploy trades service if changed
+      if: needs.determine-changes.outputs.trades_changed == 'true'
+      run: |
+        # Update the deployment image
+        kubectl -n services set image deployment/trades trades=ghcr.io/mdshihabullah/real-time-crypto-price-predictor/trades:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        # Rollout restart to ensure the new image is used
+        kubectl -n services rollout restart deployment trades
+        
+    - name: Build and push candles image if changed
+      if: needs.determine-changes.outputs.candles_changed == 'true'
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: docker/service.prod.Dockerfile
+        push: true
+        build-args: |
+          SERVICE_NAME=candles
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VERSION=${{ github.sha }}
+          SOURCE_COMMIT=${{ github.sha }}
+        tags: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/candles:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        
+    - name: Deploy candles service if changed
+      if: needs.determine-changes.outputs.candles_changed == 'true'
+      run: |
+        # Update the deployment image
+        kubectl -n services set image deployment/candles candles=ghcr.io/mdshihabullah/real-time-crypto-price-predictor/candles:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        # Rollout restart to ensure the new image is used
+        kubectl -n services rollout restart deployment candles
+        
+    - name: Build and push structurizr image if changed
+      if: needs.determine-changes.outputs.structurizr_changed == 'true'
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: docker/structurizr.Dockerfile
+        push: true
+        build-args: |
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          SOURCE_COMMIT=${{ github.sha }}
+        tags: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/structurizr:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        
+    - name: Deploy structurizr service if changed
+      if: needs.determine-changes.outputs.structurizr_changed == 'true'
+      run: |
+        # Update the deployment image
+        kubectl -n structurizr set image deployment/structurizr structurizr=ghcr.io/mdshihabullah/real-time-crypto-price-predictor/structurizr:beta-$(date +%d-%m-%Y)-${{ github.sha }}
+        # Rollout restart to ensure the new image is used
+        kubectl -n structurizr rollout restart deployment structurizr
+        
+    - name: Apply manifest changes if needed
+      if: needs.determine-changes.outputs.manifests_changed == 'true'
+      run: |
+        cd $GITHUB_WORKSPACE
+        chmod +x deployments/prod/deploy-to-digitalocean.sh
+        ./deployments/prod/deploy-to-digitalocean.sh 

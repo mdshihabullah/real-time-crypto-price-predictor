@@ -1,3 +1,4 @@
+"""Config settings for the candles service"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
