@@ -29,3 +29,5 @@ spec:
           value: "technical_indicators"
         - name: KAFKA_CONSUMER_GROUP
           value: "ta_indicators_consumer_group"
+        - name: WINDOW_IN_SEC
+          value: "60"

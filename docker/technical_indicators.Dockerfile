@@ -1,20 +1,21 @@
-# 2-stage Dockerfile for the `technical_indicators` service
+########################  Stage 1 – builder  ##########################
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-########################################################
-# Stage 1: Builder with uv and TA-Lib
-########################################################
-FROM python:3.12-alpine AS builder
+# Set uv configuration for better performance and Docker compatibility
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_SYSTEM_PYTHON=1
 
-# Install build dependencies
-RUN apk add --no-cache \
-    gcc \
-    g++ \
-    musl-dev \
-    make \
+# Install build dependencies for confluent-kafka and ta-lib
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    librdkafka-dev \
+    libssl-dev \
+    pkg-config \
     wget \
-    tar
+    && rm -rf /var/lib/apt/lists/*
 
-# Install ta-lib
+# Install ta-lib - optimize by combining commands to reduce layers
 ENV TALIB_DIR=/usr/local
 RUN wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz && \
     tar -xzf ta-lib-0.6.4-src.tar.gz && \
@@ -23,90 +24,46 @@ RUN wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-
     make -j$(nproc) && \
     make install && \
     cd .. && \
-    rm -rf ta-lib-0.6.4-src.tar.gz ta-lib-0.6.4/
+    rm -rf ta-lib-0.6.4-src.tar.gz ta-lib-0.6.4/ && \
+    ldconfig
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_LINK_MODE=copy
-
-# Set service name as build argument
-ARG SERVICE_NAME
-ENV SERVICE_NAME=${SERVICE_NAME}
-
+# Set the working directory
 WORKDIR /app
 
-# Copy only the requirements.txt file
-COPY services/${SERVICE_NAME}/requirements.txt /app/
+# Copy the application source
+COPY services/technical_indicators/ .
 
-# Create virtual environment and install dependencies using uv add
+# Install dependencies using uv
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv && \
-    uv add -r requirements.txt
+    uv pip install --system -e .
 
-# Copy only the required service files
-COPY services/${SERVICE_NAME}/src /app/src
-
-########################################################
-# Stage 2: Efficient runtime image
-########################################################
-FROM python:3.12-alpine
-
-# Required build arguments for OCI labels
-ARG SERVICE_NAME
-ARG BUILD_DATE
-ARG VERSION
-ARG SOURCE_COMMIT
-
-# OCI-compliant labels
-LABEL org.opencontainers.image.title="${SERVICE_NAME} Service" \
-      org.opencontainers.image.description="Technical indicators service for cryptocurrency data processing" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${SOURCE_COMMIT}" \
-      org.opencontainers.image.licenses="MIT"
-
-# Install runtime dependencies only
-RUN apk add --no-cache libstdc++
-
-# Copy only necessary libraries from builder
-COPY --from=builder /usr/local/lib/libta_lib* /usr/local/lib/
-COPY --from=builder /usr/local/include/ta-lib /usr/local/include/ta-lib
-RUN ldconfig /usr/local/lib || echo "Alpine doesn't have ldconfig, continuing..."
-
-# Set up a non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+########################  Stage 2 – runtime  ##########################
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Copy virtual environment and application code
-COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
-COPY --from=builder --chown=appuser:appgroup /app/src /app/src
+# Copy ALL from /usr/local for proper library linkage
+COPY --from=builder /usr/local/ /usr/local/
 
-# Set up environment for performance and security
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PYTHONHASHSEED=random \
-    PYTHONFAULTHANDLER=1
+# Run ldconfig to update the shared library cache
+RUN ldconfig
 
-# Create state directory if needed
-RUN mkdir -p /app/state && chown -R appuser:appgroup /app/state
+# Install runtime dependencies with minimal layer size
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    librdkafka1 \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch to non-root user
+# Copy application files
+COPY services/technical_indicators/ /app/
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Create and use non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
 USER appuser
 
-# Define health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0 if 'src' in sys.path else 1)"
-
-# Run the service
-CMD ["python", "/app/src/technical_indicators/main.py"]
-
-# If you want to debug the file system, uncomment the line below
-# This will keep the container running and allow you to exec into it
-# CMD ["/bin/bash", "-c", "sleep 999999"]
+# Use exec form for ENTRYPOINT to avoid shell requirement
+ENTRYPOINT ["python", "/app/src/technical_indicators/main.py"]

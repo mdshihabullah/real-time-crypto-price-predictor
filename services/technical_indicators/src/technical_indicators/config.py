@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Where pydantic should also look for key-value pairs
     # ------------------------------------------------------------------ #
     model_config = SettingsConfigDict(
-        env_file="services/technical_indicators/settings.env",
+        env_file="../../settings.env",
         env_file_encoding="utf-8",
     )
 
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     @classmethod
     def load(
         cls,
-        yaml_path: str | os.PathLike = "services/technical_indicators/ti_config.yaml",
+        yaml_path: str | os.PathLike = "../../ti_config.yaml",
     ) -> "Settings":
         """
         Build a Settings instance from two sources:
