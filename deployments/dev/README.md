@@ -66,3 +66,35 @@ For production environments, consider:
 ## Templates
 
 See the `template` directory for reference deployment templates that follow these best practices. 
+
+
+## Grafana Dashboard Configuration
+
+This project uses ConfigMaps to dynamically load Grafana dashboards from JSON files. The setup follows best practices for Kubernetes deployments in both development and production environments.
+
+### How it works
+
+1. Dashboard JSON files are stored in the `dashboards/grafana/` directory
+2. The `generate-dashboard-configmaps.sh` script creates ConfigMaps from these JSON files
+3. Grafana's sidecar container automatically discovers and loads these dashboards
+
+### Adding a new dashboard
+
+1. Create your dashboard in Grafana UI and export as JSON
+2. Save the JSON file in `dashboards/grafana/`
+3. Run the dashboard setup:
+
+```bash
+cd deployments/dev/kind
+./apply-grafana-dashboards.sh
+```
+
+### In production (DigitalOcean Kubernetes)
+
+The same approach works in production:
+
+1. Store dashboard JSON files in Git
+2. Include the dashboard generation as part of your CI/CD pipeline
+3. Apply the generated ConfigMaps to your Kubernetes cluster
+
+This approach is scalable and maintainable even with hundreds of dashboards.

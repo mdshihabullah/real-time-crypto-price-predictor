@@ -69,4 +69,7 @@ echo "Installing Grafana..."
 chmod +x ./install_grafana.sh
 ./install_grafana.sh
 
-
+#10. Apply Grafana dashboards
+echo "Applying Grafana dashboards..."
+chmod +x ./apply-grafana-dashboards.sh
+./apply-grafana-dashboards.sh

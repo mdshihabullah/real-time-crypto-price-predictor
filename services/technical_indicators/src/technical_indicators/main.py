@@ -6,14 +6,15 @@ from quixstreams import Application
 from technical_indicators.candle_utils import update_candles_in_state
 from technical_indicators.config import config
 from technical_indicators.indicators import compute_technical_indicators
-
+from technical_indicators.tables import create_table_in_risingwave
 
 def run (
         kafka_broker_address:str,
         kafka_input_topic:str,
         kafka_output_topic:str,
         window_in_sec:int,
-        kafka_consumer_group:str
+        kafka_consumer_group:str,
+        risingwave_table_name:str
 ):
     """
     Run the application to consume candles and produce technical indicators
@@ -52,5 +53,6 @@ if __name__ == "__main__":
         kafka_input_topic=config.kafka_input_topic,
         kafka_output_topic=config.kafka_output_topic,
         window_in_sec=config.window_in_sec,
-        kafka_consumer_group=config.kafka_consumer_group
+        kafka_consumer_group=config.kafka_consumer_group,
+        risingwave_table_name=config.risingwave_table_name
         )

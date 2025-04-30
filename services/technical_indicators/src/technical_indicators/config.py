@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     kafka_output_topic: str
     kafka_consumer_group: str
     window_in_sec: int
+    risingwave_table_name: str
 
     # ------------------------------------------------------------------ #
     # Optional settings with sane defaults
