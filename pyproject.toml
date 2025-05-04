@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["services/trades", "services/candles", "services/technical_indicators"]
+members = ["services/trades", "services/candles", "services/technical_indicators", "deployments/prod/manifests/services/predictor"]
 
 [tool.uv.sources]
 trades = { workspace = true }

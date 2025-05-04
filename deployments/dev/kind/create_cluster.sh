@@ -78,3 +78,8 @@ chmod +x ./apply-grafana-dashboards.sh
 echo "Installing Metabase..."
 chmod +x ./install_metabase.sh
 ./install_metabase.sh
+
+#12. Install MLFlow
+echo "Installing MLFlow..."
+chmod +x ./install_mlflow.sh
+./install_mlflow.sh
