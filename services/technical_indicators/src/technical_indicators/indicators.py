@@ -39,7 +39,7 @@ def compute_technical_indicators(
     indicators = {}
 
     # Simple Moving Average (SMA) for configured periods
-    for period in config.sma_periods:
+    for period in config.periods:
         # Skip if we don't have enough data points
         if len(close) >= period:
             indicators[f'sma_{period}'] = stream.SMA(close, timeperiod=period)

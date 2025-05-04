@@ -1,9 +1,9 @@
 """
 Configuration module for the *technical_indicators* service.
 
-• Loads **required** settings from environment variables / .env  
-• Loads **optional / override** settings from a YAML file  
-• Merges the two sources (YAML wins) and validates everything with Pydantic
+• Loads **required** settings from environment variables / .env
+• Loads **optional / override** settings from a YAML file
+• Merges the two sources and validates everything with Pydantic
 """
 
 from __future__ import annotations
@@ -15,6 +15,11 @@ from typing import List
 import yaml
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ENV_FILE_NAME = "settings.env"
+ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ENV_FILE_NAME
+
+CONFIG_FILE_NAME = "ti_config.yaml"
+CONFIG_FILE_PATH = Path(__file__).resolve().parents[2] / CONFIG_FILE_NAME
 
 class Settings(BaseSettings):
     """All runtime settings for the service."""
@@ -23,7 +28,7 @@ class Settings(BaseSettings):
     # Where pydantic should also look for key-value pairs
     # ------------------------------------------------------------------ #
     model_config = SettingsConfigDict(
-        env_file="../../settings.env",
+        env_file=str(ENV_FILE_PATH),
         env_file_encoding="utf-8",
     )
 
@@ -37,13 +42,15 @@ class Settings(BaseSettings):
     window_in_sec: int
     risingwave_table_name: str
 
+
     # ------------------------------------------------------------------ #
     # Optional settings with sane defaults
     # ------------------------------------------------------------------ #
     max_candles_in_state: int = 60
 
-    # Technical-indicator-specific parameters (live in YAML by design)
-    sma_periods: List[int] = [7, 14, 21, 60]
+    # ───── indicator specific ─────
+    # Declared with default so an env-only instantiation passes validation.
+    periods: List[int] = []
 
     # ------------------------------------------------------------------ #
     # Unified loader
@@ -51,7 +58,7 @@ class Settings(BaseSettings):
     @classmethod
     def load(
         cls,
-        yaml_path: str | os.PathLike = "../../ti_config.yaml",
+        yaml_path: str | os.PathLike = str(CONFIG_FILE_PATH),
     ) -> "Settings":
         """
         Build a Settings instance from two sources:
@@ -72,8 +79,9 @@ class Settings(BaseSettings):
             except yaml.YAMLError as exc:
                 raise ValueError(f"Could not parse YAML config: {exc}") from exc
         else:
-            # Absence of YAML is *not* fatal – we can run with pure env vars
-            print(f"[settings] YAML file not found at {yaml_path}. Using env vars only.")
+            # YAML file is required for periods configuration
+            raise FileNotFoundError(f"YAML configuration file not found at {yaml_path}.\
+                    This file is required for technical indicators configuration.")
 
         # ---- 2) Parse env /.env  ---------------------------------------
         env_cfg = cls()  # reads env vars & .env thanks to BaseSettings

@@ -1,21 +1,17 @@
+""" Kraken WebSocket API connector"""
 import json
+from datetime import datetime
 
 from loguru import logger
-from pydantic import BaseModel
 from websocket import create_connection
 
-
-class Trade(BaseModel):
-    product_id: str
-    price: float
-    quantity: float
-    timestamp: str
-
-    def to_dict(self) -> dict:
-        return self.model_dump()
+from trades.trade import Trade
 
 
-class KrakenAPI:
+class KrakenWebSocketAPI:
+    """
+    Kraken WebSocket API
+    """
     URL = "wss://ws.kraken.com/v2"
 
     def __init__(
@@ -31,6 +27,9 @@ class KrakenAPI:
         self._subscribe(product_ids)
 
     def get_trades(self) -> list[Trade]:
+        """
+        Get the trades from the Kraken WebSocket API
+        """
         data: str = self._ws_client.recv()
 
         if "heartbeat" in data:
@@ -50,27 +49,13 @@ class KrakenAPI:
             logger.error(f"No `data` field with trades in the message {e}")
             return []
 
-        # Method 1 to create a list of trades
-        # Naive implementation
-        # trades = []
-        # for trade in trades_data:
-        #     trades.append(
-        #         Trade(
-        #             product_id=trade['symbol'],
-        #             price=trade['price'],
-        #             quantity=trade['qty'],
-        #             timestamp=trade['timestamp'],
-        #         )
-        #     )
-
-        # Method 2 to create a list of trades
-        # Using list comprehension (this is faster)
         trades = [
             Trade(
                 product_id=trade["symbol"],
                 price=trade["price"],
                 quantity=trade["qty"],
                 timestamp=trade["timestamp"],
+                timestamp_ms=int(datetime.fromisoformat(trade["timestamp"]).timestamp() * 1000)
             )
             for trade in trades_data
         ]

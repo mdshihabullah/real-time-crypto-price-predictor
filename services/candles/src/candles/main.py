@@ -1,11 +1,26 @@
 """Main module for the candles service"""
 
 from datetime import timedelta
+from typing import Any, List, Optional, Tuple
 
 from loguru import logger
 from quixstreams import Application
+from quixstreams.models import TimestampType
 
 from candles.config import config
+
+
+def custom_ts_extractor(
+    value: Any,
+    headers: Optional[List[Tuple[str, bytes]]],
+    timestamp: float,
+    timestamp_type: TimestampType,
+) -> int:
+    """
+    Specifying a custom timestamp extractor to use the timestamp from the message payload 
+    instead of Kafka timestamp.
+    """
+    return value["timestamp_ms"]
 
 
 def init_candle(trade: dict) -> dict:
@@ -55,7 +70,9 @@ def run (
     )
 
     # Define a topic "my_topic" with JSON serialization
-    input_topic = app.topic(name=kafka_input_topic, value_serializer="json")
+    input_topic = app.topic(name=kafka_input_topic,
+                            value_serializer="json",
+                            timestamp_extractor=custom_ts_extractor)
     output_topic = app.topic(name=kafka_output_topic, value_serializer="json")
 
     sdf = app.dataframe(topic=input_topic)

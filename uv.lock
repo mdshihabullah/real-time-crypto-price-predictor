@@ -76,6 +76,20 @@ wheels = [
 name = "candles"
 version = "0.1.0"
 source = { editable = "services/candles" }
+dependencies = [
+    { name = "confluent-kafka" },
+    { name = "loguru" },
+    { name = "quixstreams" },
+    { name = "websocket-client" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "confluent-kafka", specifier = ">=2.8.2" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "quixstreams", specifier = ">=3.13.1" },
+    { name = "websocket-client", specifier = ">=1.8.0" },
+]
 
 [[package]]
 name = "certifi"
@@ -817,16 +831,42 @@ name = "technical-indicators"
 version = "0.1.0"
 source = { editable = "services/technical_indicators" }
 dependencies = [
+    { name = "confluent-kafka" },
+    { name = "loguru" },
+    { name = "pyyaml" },
+    { name = "quixstreams" },
     { name = "ta-lib" },
+    { name = "websocket-client" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ta-lib", specifier = ">=0.6.3" }]
+requires-dist = [
+    { name = "confluent-kafka", specifier = ">=2.8.2" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "quixstreams", specifier = ">=3.13.1" },
+    { name = "ta-lib", specifier = ">=0.6.3" },
+    { name = "websocket-client", specifier = ">=1.8.0" },
+]
 
 [[package]]
 name = "trades"
 version = "0.1.0"
 source = { editable = "services/trades" }
+dependencies = [
+    { name = "confluent-kafka" },
+    { name = "loguru" },
+    { name = "quixstreams" },
+    { name = "websocket-client" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "confluent-kafka", specifier = ">=2.8.2" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "quixstreams", specifier = ">=3.13.1" },
+    { name = "websocket-client", specifier = ">=1.8.0" },
+]
 
 [[package]]
 name = "typing-extensions"
