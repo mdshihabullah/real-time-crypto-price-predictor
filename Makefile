@@ -35,6 +35,9 @@ push-for-dev:
 
 # Deploys the docker image to the kind cluster
 deploy-for-dev: build-for-dev push-for-dev
+	# Create namespace if it doesn't exist
+	kubectl create namespace services --dry-run=client -o yaml | kubectl apply -f -
+	
 	kubectl delete -f deployments/dev/${service}/${service}.yaml --ignore-not-found=true
 	kubectl apply -f deployments/dev/${service}/${service}.yaml
 
