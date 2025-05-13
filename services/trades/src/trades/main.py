@@ -40,7 +40,8 @@ def setup_kafka(
         value_serializer="json",
         timestamp_extractor=custom_ts_extractor,
         config=TopicConfig(
-            replication_factor=1, num_partitions=len(config.product_ids)
+            replication_factor=1,
+            num_partitions=len(config.product_ids)
         )
     )
 

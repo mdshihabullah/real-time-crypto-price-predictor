@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Tuple
 
 from loguru import logger
 from quixstreams import Application
-from quixstreams.models import TimestampType
+from quixstreams.models import TimestampType, TopicConfig
 
 from candles.config import config
 
@@ -72,7 +72,12 @@ def run (
     # Define a topic "my_topic" with JSON serialization
     input_topic = app.topic(name=kafka_input_topic,
                             value_serializer="json",
-                            timestamp_extractor=custom_ts_extractor)
+                            timestamp_extractor=custom_ts_extractor,
+                            config=TopicConfig(
+                                num_partitions=4,
+                                replication_factor=1
+                                )
+                            )
     output_topic = app.topic(name=kafka_output_topic, value_serializer="json")
 
     sdf = app.dataframe(topic=input_topic)

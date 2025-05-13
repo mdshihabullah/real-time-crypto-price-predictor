@@ -13,7 +13,7 @@ PRODUCT_IDS = ["BTC/EUR", "ETH/EUR", "SOL/EUR", "XRP/EUR"]
 
 
 # Number of days to fetch from Kraken
-LAST_N_DAYS = 3
+LAST_N_DAYS = 30
 
 class Settings(BaseSettings):
     """Config settings for the trades service"""

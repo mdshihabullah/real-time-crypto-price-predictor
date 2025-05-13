@@ -84,10 +84,23 @@ class Settings(BaseSettings):
                     This file is required for technical indicators configuration.")
 
         # ---- 2) Parse env /.env  ---------------------------------------
-        env_cfg = cls()  # reads env vars & .env thanks to BaseSettings
+        env_settings = cls()  # reads env vars & .env thanks to BaseSettings
+        env_dump = env_settings.model_dump()
+        
+        # Get default field values to avoid overriding YAML with defaults
+        default_settings = cls()
+        default_values = {k: v for k, v in default_settings.__dict__.items() 
+                         if not k.startswith('_')}
+        
+        # Only include env values that are explicitly set (different from defaults)
+        explicit_env_values = {}
+        for key, value in env_dump.items():
+            # If this field isn't in defaults or the value differs from default
+            if key not in default_values or value != default_values[key]:
+                explicit_env_values[key] = value
 
-        # ---- 3) Merge (env overrides YAML) -----------------------------
-        merged = {**yaml_cfg, **env_cfg.model_dump()}  # env wins
+        # ---- 3) Merge (explicit env overrides YAML) --------------------
+        merged = {**yaml_cfg, **explicit_env_values}  # explicit env wins
 
         # ---- 4) Validate final bundle and return -----------------------
         return cls(**merged)
