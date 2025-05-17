@@ -6,11 +6,11 @@ It includes functions to:
 - Log data and profile reports for specific cryptocurrency pairs
 """
 
+import contextlib
 import os
 import tempfile
-import contextlib
 from datetime import datetime
-from typing import List, Optional, Dict, Union, Any, Generator, Tuple
+from typing import Generator, List, Optional, Tuple, Union
 
 import mlflow
 import pandas as pd
@@ -105,8 +105,8 @@ def get_or_create_experiment(pair_name: str) -> str:
     return experiment_id
 
 
-# Dictionary to keep track of pair-specific parent runs
-_PAIR_PARENT_RUNS = {}
+# Dictionary to keep track of pair-specific runs
+_PAIR_RUNS = {}
 
 
 @contextlib.contextmanager
@@ -117,9 +117,11 @@ def active_run(
     Get or create an MLflow run within the appropriate experiment for a cryptocurrency pair.
 
     This function will either:
-    1. Create a new parent run if one doesn't exist for this pair
-    2. Use an existing parent run if available
-    3. Use a specific run ID if provided
+    1. Use a specific run ID if provided
+    2. Use an existing run for this pair if available
+    3. Create a new run if needed
+
+    Each pair will always have its own separate run to ensure metrics are properly isolated.
 
     Args:
         pair_name (str): Name of the cryptocurrency pair
@@ -130,12 +132,11 @@ def active_run(
         mlflow.ActiveRun: The active MLflow run
     """
     # Get or create the experiment
-    experiment_id = get_or_create_experiment(pair_name)
-
-    # Set the experiment
     try:
+        experiment_id = get_or_create_experiment(pair_name)
         mlflow.set_experiment(experiment_id=experiment_id)
         logger.debug(f"Set active experiment ID: {experiment_id}")
+
     except Exception as e:
         logger.error(f"Error setting experiment: {str(e)}")
         # Try creating a new experiment with timestamp as fallback
@@ -148,50 +149,98 @@ def active_run(
     if run_name is None:
         run_name = f"{pair_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    # If a specific run_id is provided, use it
+    # First, check if there's already an active run that's specifically for this pair
+    current_run = mlflow.active_run()
+    if current_run is not None:
+        # Only use the current run if it's for this pair (check params)
+        try:
+            client = mlflow.tracking.MlflowClient()
+            run_data = client.get_run(current_run.info.run_id)
+            if run_data.data.params.get("pair") == pair_name:
+                logger.debug(
+                    f"Using current active run for {pair_name}: {current_run.info.run_id}"
+                )
+                yield current_run
+                return
+            else:
+                # End the current run if it's for a different pair to avoid mixing metrics
+                logger.debug(
+                    f"Ending active run for different pair: {current_run.info.run_id}"
+                )
+                mlflow.end_run()
+        except Exception as e:
+            logger.error(f"Error checking current run: {str(e)}")
+            mlflow.end_run()  # End the run to be safe
+
+    # Option 1: Use a specific run_id if provided
     if run_id is not None:
         try:
-            # Use the provided run_id
-            with mlflow.start_run(run_id=run_id) as run:
-                logger.debug(f"Using provided run ID: {run_id}")
-                yield run
-                return
+            run = mlflow.start_run(run_id=run_id)
+            logger.debug(f"Using provided run ID for {pair_name}: {run_id}")
+            _PAIR_RUNS[pair_name] = run_id  # Update the dictionary
+            yield run
+            return
         except Exception as e:
             logger.error(f"Error using provided run ID {run_id}: {str(e)}")
             # Fall through to other options
 
-    # Check if we already have a parent run for this pair
-    parent_run_id = _PAIR_PARENT_RUNS.get(pair_name)
-
-    if parent_run_id:
+    # Option 2: Use the existing run for this pair
+    existing_run_id = _PAIR_RUNS.get(pair_name)
+    if existing_run_id:
         try:
-            # Use existing parent run
-            with mlflow.start_run(run_id=parent_run_id) as parent_run:
-                logger.debug(f"Using existing parent run: {parent_run_id}")
-                yield parent_run
-                return
+            run = mlflow.start_run(run_id=existing_run_id)
+            logger.debug(f"Using existing run for {pair_name}: {existing_run_id}")
+            yield run
+            return
         except Exception as e:
-            logger.error(f"Error using existing parent run {parent_run_id}: {str(e)}")
-            # Remove the invalid parent run ID
-            _PAIR_PARENT_RUNS.pop(pair_name, None)
+            logger.error(f"Error using existing run {existing_run_id}: {str(e)}")
+            # Remove the invalid run ID
+            _PAIR_RUNS.pop(pair_name, None)
             # Fall through to creating a new run
 
-    # Create a new parent run if we get here
+    # Option 3: Create a new run
     try:
-        with mlflow.start_run(run_name=run_name) as run:
-            # Store this run as the parent run for this pair
-            _PAIR_PARENT_RUNS[pair_name] = run.info.run_id
-            logger.debug(f"Created new parent run: {run.info.run_id} for {pair_name}")
-            yield run
+        run = mlflow.start_run(run_name=run_name)
+        # Store this run for this pair
+        _PAIR_RUNS[pair_name] = run.info.run_id
+        logger.debug(f"Created new run for {pair_name}: {run.info.run_id}")
+
+        # Log essential parameters
+        try:
+            mlflow.log_param("pair", pair_name)
+            mlflow.log_param("creation_timestamp", datetime.now().isoformat())
+        except Exception as param_error:
+            logger.warning(f"Could not log initial parameters: {str(param_error)}")
+
+        yield run
+        return
     except Exception as e:
         logger.error(f"Error creating new run: {str(e)}")
-        # Fallback to a new run with unique name
-        with mlflow.start_run(run_name=f"{run_name}_retry") as run:
-            _PAIR_PARENT_RUNS[pair_name] = run.info.run_id
-            logger.debug(
-                f"Created fallback parent run: {run.info.run_id} for {pair_name}"
+        # One final attempt with a unique name
+        try:
+            fallback_name = (
+                f"{run_name}_retry_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             )
+            run = mlflow.start_run(run_name=fallback_name)
+            _PAIR_RUNS[pair_name] = run.info.run_id
+            logger.debug(f"Created fallback run: {run.info.run_id} for {pair_name}")
+
+            try:
+                mlflow.log_param("pair", pair_name)
+            except Exception:
+                pass  # Just ignore errors at this point
+
             yield run
+            return
+        except Exception as final_e:
+            logger.error(f"All attempts to create an MLflow run failed: {str(final_e)}")
+            # Create a dummy run object to avoid breaking calling code
+            yield type(
+                "DummyRun",
+                (),
+                {"info": type("DummyInfo", (), {"run_id": "dummy_run_error"})},
+            )
+            return
 
 
 def log_data_to_mlflow(
@@ -207,25 +256,31 @@ def log_data_to_mlflow(
     """
     # Log basic data stats
     if log_params:
-        mlflow.log_params(
-            {
-                "pair": pair_name,
-                "data_rows": len(df),
-                "data_columns": len(df.columns),
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
+        try:
+            # Use metrics instead of parameters for things that might change
+            mlflow.log_metric("data_rows", len(df))
+            mlflow.log_metric("data_columns", len(df.columns))
+
+            # Use a unique parameter name with timestamp to avoid conflicts
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            param_prefix = f"data_{timestamp}"
+
+            # Log parameters that are safe to log once
+            mlflow.log_param(f"{param_prefix}_pair", pair_name)
+        except Exception as e:
+            logger.warning(f"Could not log data parameters: {str(e)}")
 
     # Log sample data directly
-    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-        artifact_name = (
-            f"{pair_name}_data_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-        df.head(100).to_csv(tmp.name, index=False)
-        mlflow.log_artifact(tmp.name, artifact_name)
-        os.unlink(tmp.name)  # Clean up the temporary file
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+            artifact_name = f"{pair_name}_data_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            df.head(100).to_csv(tmp.name, index=False)
+            mlflow.log_artifact(tmp.name, artifact_name)
+            os.unlink(tmp.name)  # Clean up the temporary file
 
-        logger.info(f"Logged data samples for {pair_name} to MLflow")
+            logger.info(f"Logged data samples for {pair_name} to MLflow")
+    except Exception as e:
+        logger.warning(f"Could not log data samples: {str(e)}")
 
 
 def log_profile_report_to_mlflow(pair_name: str, df: pd.DataFrame) -> None:
@@ -235,17 +290,23 @@ def log_profile_report_to_mlflow(pair_name: str, df: pd.DataFrame) -> None:
         pair_name (str): Name of the cryptocurrency pair
         df (pandas.DataFrame): Data to log
     """
-    profile = ydata_profiling.ProfileReport(
-        df, title=f"Technical Indicators Profile - {pair_name}", explorative=True
-    )
+    try:
+        profile = ydata_profiling.ProfileReport(
+            df, title=f"Technical Indicators Profile - {pair_name}", explorative=True
+        )
 
-    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
-        artifact_name = f"{pair_name}_profile_reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-        profile.to_file(tmp.name)
-        mlflow.log_artifact(tmp.name, artifact_name)
-        os.unlink(tmp.name)  # Clean up the temporary file
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
+            artifact_name = f"{pair_name}_profile_reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+            profile.to_file(tmp.name)
+            mlflow.log_artifact(tmp.name, artifact_name)
+            os.unlink(tmp.name)  # Clean up the temporary file
 
-    logger.info(f"Logged profile report for {pair_name} to MLflow")
+        logger.info(f"Logged profile report for {pair_name} to MLflow")
+    except Exception as e:
+        logger.warning(f"Error creating profile report for {pair_name}: {str(e)}")
+        import traceback
+
+        logger.debug(f"Traceback: {traceback.format_exc()}")
 
 
 def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
@@ -260,37 +321,67 @@ def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
     Returns:
         str: The active run ID
     """
+    # Check if we already have a run for this pair
+    pair_run_id = _PAIR_RUNS.get(pair_name)
+    is_new_run = pair_run_id is None
+
     try:
-        with active_run(pair_name) as run:
+        # Use the active_run context to either get existing run or create a new one
+        with active_run(pair_name, run_id=pair_run_id) as run:
+            # Save this run ID for future reference
             run_id = run.info.run_id
+            _PAIR_RUNS[pair_name] = run_id
+
+            # Only log workflow parameters if this is a new run to avoid conflicts
+            if is_new_run:
+                try:
+                    # Create a unique workflow ID for this logging session
+                    workflow_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    mlflow.log_param(f"{workflow_id}_step", "initial_data_logging")
+                except Exception as e:
+                    logger.warning(f"Could not log workflow parameters: {str(e)}")
 
             # Check if data is a DataFrame or a tuple from prepare_time_series_data
             if isinstance(data, pd.DataFrame):
-                log_data_to_mlflow(pair_name, data)
-                log_profile_report_to_mlflow(pair_name, data)
+                log_data_to_mlflow(pair_name, data, log_params=is_new_run)
+                try:
+                    log_profile_report_to_mlflow(pair_name, data)
+                except Exception as e:
+                    logger.warning(
+                        f"Error generating or logging profile report: {str(e)}"
+                    )
             elif isinstance(data, tuple) and len(data) >= 2:
                 # Assuming data is (X, y, scaler) from prepare_time_series_data
                 X, y = data[0], data[1]
 
                 # Log X features
-                log_data_to_mlflow(f"{pair_name}_features", X)
+                log_data_to_mlflow(f"{pair_name}_features", X, log_params=is_new_run)
 
                 # Log y target as a DataFrame
                 y_df = pd.DataFrame(y)
-                log_data_to_mlflow(f"{pair_name}_target", y_df)
+                log_data_to_mlflow(f"{pair_name}_target", y_df, log_params=is_new_run)
 
                 # Log combined data for profiling
-                combined_df = X.copy()
-                combined_df["target"] = y
-                log_profile_report_to_mlflow(pair_name, combined_df)
+                try:
+                    combined_df = X.copy()
+                    combined_df["target"] = y
+                    log_profile_report_to_mlflow(pair_name, combined_df)
+                except Exception as e:
+                    logger.warning(
+                        f"Error generating or logging combined profile report: {str(e)}"
+                    )
             else:
                 logger.warning(
                     f"Unsupported data type for MLflow logging: {type(data)}"
                 )
 
+        logger.info(f"Logged data to MLflow run {run_id} for {pair_name}")
         return run_id
     except Exception as e:
         logger.error(f"Error logging to MLflow: {str(e)}")
+        import traceback
+
+        logger.error(f"Traceback: {traceback.format_exc()}")
         # Return a placeholder if logging failed
         return f"logging_failed_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -350,7 +441,12 @@ def log_models_to_mlflow(
                 }
 
                 # Log key metrics for the best model
-                for metric in ["R-Squared", "RMSE", "Time Taken"]:
+                for metric in [
+                    "mean_absolute_error_metric",
+                    "R-Squared",
+                    "RMSE",
+                    "Time Taken",
+                ]:
                     if metric in best_model:
                         best_model_metrics[f"{pair_name}_best_model_{metric}"] = (
                             best_model[metric]
@@ -363,7 +459,12 @@ def log_models_to_mlflow(
                 model_row = models_df[models_df["Model"] == model_name]
                 if not model_row.empty:
                     model_data = model_row.iloc[0]
-                    for metric in ["R-Squared", "RMSE", "Time Taken"]:
+                    for metric in [
+                        "mean_absolute_error_metric",
+                        "R-Squared",
+                        "RMSE",
+                        "Time Taken",
+                    ]:
                         if metric in model_data:
                             try:
                                 mlflow.log_metric(
@@ -415,27 +516,44 @@ def get_active_run_id(pair_name: Optional[str] = None) -> Optional[str]:
     Get the current active run ID for a particular pair.
 
     Args:
-        pair_name (str, optional): If provided, get the parent run ID for this pair
+        pair_name (str, optional): If provided, get the run ID for this pair
 
     Returns:
         str: The active run ID or None if no run is active
     """
-    try:
-        # If pair_name is provided and we have a parent run for it, return that
-        if pair_name is not None and pair_name in _PAIR_PARENT_RUNS:
-            return _PAIR_PARENT_RUNS[pair_name]
+    if pair_name is not None:
+        # First check if we have a stored run ID for this pair
+        if pair_name in _PAIR_RUNS:
+            return _PAIR_RUNS.get(pair_name)
 
-        # Otherwise check for any active run
-        run = mlflow.active_run()
-        return run.info.run_id if run is not None else None
-    except Exception as e:
-        logger.error(f"Error getting active run ID: {str(e)}")
-        return None
+    # If no pair name is provided or no run exists for the pair,
+    # try to get the current active run
+    active_run = mlflow.active_run()
+    if active_run:
+        return active_run.info.run_id
+
+    return None
 
 
+def reset_pair_runs():
+    """
+    Reset the runs dictionary. Useful for testing or
+    when you want to start fresh with new runs.
+
+    This forces the system to create new runs for each pair
+    instead of reusing existing runs from a previous session.
+    """
+    global _PAIR_RUNS
+    if _PAIR_RUNS:
+        logger.info(f"Resetting {len(_PAIR_RUNS)} pair runs")
+        _PAIR_RUNS = {}
+    else:
+        logger.debug("No pair runs to reset")
+
+
+# Keep the old function name for backward compatibility
 def reset_parent_runs():
     """
-    Reset the parent runs dictionary. Useful for testing or
-    when you want to start fresh with new runs.
+    Alias for reset_pair_runs for backward compatibility.
     """
-    _PAIR_PARENT_RUNS.clear()
+    return reset_pair_runs()

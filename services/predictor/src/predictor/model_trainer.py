@@ -1,15 +1,16 @@
 """Module for training and evaluating predictive models using LazyPredict."""
 
 import os
-from typing import Dict, List, Tuple, Any, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import mlflow
 import numpy as np
 import pandas as pd
 from lazypredict.Supervised import LazyRegressor
 from loguru import logger
 from sklearn.metrics import mean_absolute_error
 
-from predictor.mlflow_logger import log_models_to_mlflow, get_active_run_id
+from predictor.mlflow_logger import log_models_to_mlflow
 
 
 class ModelTrainer:
@@ -70,13 +71,16 @@ class ModelTrainer:
         if mlflow_uri:
             # Save the URI and remove it temporarily
             del os.environ["MLFLOW_TRACKING_URI"]
-            logger.debug(f"Temporarily removed MLflow URI for LazyPredict: {mlflow_uri}")
+            logger.debug(
+                f"Temporarily removed MLflow URI for LazyPredict: {mlflow_uri}"
+            )
 
         # Initialize LazyRegressor
         reg = LazyRegressor(
             ignore_warnings=self.ignore_warnings,
             custom_metric=self.mean_absolute_error_metric,
             verbose=True,
+            predictions=False,
         )
 
         try:
@@ -93,30 +97,48 @@ class ModelTrainer:
             if isinstance(y_test, pd.DataFrame) and y_test.shape[1] == 1:
                 y_test_f32 = y_test_f32.iloc[:, 0]
 
+            # Log data shapes and types
+            logger.info(
+                f"Training data shapes - X_train: {X_train_f32.shape}, y_train: {y_train_f32.shape}"
+            )
+            logger.info(
+                f"Testing data shapes - X_test: {X_test_f32.shape}, y_test: {y_test_f32.shape}"
+            )
+
             # Train models
             logger.info(f"Starting model training for {pair_name} with LazyPredict")
-            models, predictions = reg.fit(
-                X_train_f32, X_test_f32, y_train_f32, y_test_f32
-            )
+            models, _ = reg.fit(X_train_f32, X_test_f32, y_train_f32, y_test_f32)
 
             # Process results
             if models is not None:
                 models.reset_index(inplace=True)
+                # Sort models by MAE (ascending since lower MAE is better)
+                models = models.sort_values(
+                    by="mean_absolute_error_metric", ascending=True
+                ).reset_index(drop=True)
+
                 logger.info(
                     f"Successfully trained {len(models)} models for {pair_name}"
                 )
 
                 # Get top N models
                 top_models = models["Model"].tolist()[: self.top_n_models]
-                logger.info(
-                    f"Top {len(top_models)} models for {pair_name}: {top_models}"
-                )
+
+                # Log detailed performance metrics for top models
+                logger.info(f"Top {self.top_n_models} models for {pair_name}:")
+                for i, (model_name, mae) in enumerate(
+                    zip(
+                        top_models,
+                        models["mean_absolute_error_metric"].head(self.top_n_models),
+                    )
+                ):
+                    logger.info(f"{i + 1}. {model_name}: MAE = {mae:.6f}")
 
                 # Restore MLflow URI before logging
                 if mlflow_uri:
                     os.environ["MLFLOW_TRACKING_URI"] = mlflow_uri
                     logger.debug(f"Restored MLflow URI: {mlflow_uri}")
-                
+
                 # Log model metrics with the enhanced function
                 try:
                     log_models_to_mlflow(
@@ -127,6 +149,7 @@ class ModelTrainer:
                     )
                 except Exception as e:
                     logger.error(f"Error logging models to MLflow: {str(e)}")
+                    # Continue even if MLflow logging fails
 
                 return models, top_models
             else:
@@ -135,6 +158,9 @@ class ModelTrainer:
 
         except Exception as e:
             logger.error(f"Error training models for {pair_name}: {str(e)}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None, []
         finally:
             # Restore MLflow URI if it wasn't restored yet
@@ -158,28 +184,55 @@ class ModelTrainer:
 
         for pair, data in train_val_test_data.items():
             try:
-                # Check if we already have an active run for this pair
-                active_run_id = get_active_run_id(pair)
-                if active_run_id:
-                    logger.info(f"Using existing MLflow run {active_run_id} for {pair}")
-                
-                models_df, top_models = self.train_models(
-                    data["X_train"],
-                    data["X_test"],
-                    data["y_train"],
-                    data["y_test"],
-                    pair,
-                )
-                
-                if models_df is not None and len(top_models) > 0:
-                    top_n_models[pair] = top_models
-                    logger.info(f"Successfully trained models for {pair}, top model: {top_models[0]}")
-                else:
-                    logger.warning(f"No models trained successfully for {pair}")
-                    top_n_models[pair] = []
-                    
+                # Use the active_run context manager to ensure consistent runs
+                from predictor.mlflow_logger import active_run, get_active_run_id
+
+                # Check if we already have a run for this pair
+                existing_run_id = get_active_run_id(pair)
+                is_new_run = existing_run_id is None
+
+                with active_run(pair) as run:
+                    logger.info(
+                        f"Training models for {pair} within MLflow run {run.info.run_id}"
+                    )
+
+                    # Only log step parameters for new runs to avoid conflicts
+                    if is_new_run:
+                        try:
+                            mlflow.log_param("step", "model_training")
+                        except Exception as e:
+                            logger.warning(f"Could not log step parameter: {str(e)}")
+
+                    models_df, top_models = self.train_models(
+                        data["X_train"],
+                        data["X_test"],
+                        data["y_train"],
+                        data["y_test"],
+                        pair,
+                    )
+
+                    if models_df is not None and len(top_models) > 0:
+                        top_n_models[pair] = top_models
+                        logger.info(
+                            f"Successfully trained models for {pair}, top model: {top_models[0]}"
+                        )
+
+                        # Log metrics (metrics can be updated)
+                        try:
+                            mlflow.log_metric("total_models_trained", len(models_df))
+                            mlflow.log_metric("top_models_count", len(top_models))
+                        except Exception as e:
+                            logger.warning(f"Could not log metrics: {str(e)}")
+                    else:
+                        logger.warning(f"No models trained successfully for {pair}")
+                        top_n_models[pair] = []
+                        # Do not log parameters that might conflict
+
             except Exception as e:
                 logger.error(f"Failed to train models for {pair}: {str(e)}")
+                import traceback
+
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 top_n_models[pair] = []
 
         return top_n_models

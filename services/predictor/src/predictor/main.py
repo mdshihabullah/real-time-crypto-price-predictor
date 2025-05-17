@@ -6,19 +6,24 @@ from predictor.config import config
 from predictor.data_fetcher import fetch_technical_indicators_data, get_available_pairs
 from predictor.data_preprocessor import prepare_time_series_data, split_timeseries_data
 from predictor.mlflow_logger import (
+    active_run,
     log_data_to_mlflow,
     log_profile_report_to_mlflow,
     log_to_mlflow,
-    active_run,
+    reset_pair_runs,
     setup_mlflow,
 )
 from predictor.model_trainer import ModelTrainer
+from predictor.model_tuner import ModelTuner
 
 if __name__ == "__main__":
     logger.info("Starting crypto price prediction workflow")
 
     # Setup MLflow
     setup_mlflow()
+    
+    # Reset pair runs at the start to ensure clean state
+    reset_pair_runs()
 
     # Get available pairs
     pairs = get_available_pairs()
@@ -31,11 +36,12 @@ if __name__ == "__main__":
     for pair in pairs:
         logger.info(f"Fetching technical indicators data for pair: {pair}")
         data = fetch_technical_indicators_data(pair)
-
+        # TODO: for debug purpose, remove .head(N)
+        data = data.head(100)
         if not data.empty:
             logger.info(f"Fetched {len(data)} rows of data for pair: {pair}")
-            # Log data and save the run ID # TODO: for debug purpose, remove .head(N)
-            run_id = log_to_mlflow(pair, data.head(100))
+            # Log data and save the run ID
+            run_id = log_to_mlflow(pair, data)
             pair_run_ids[pair] = run_id
             technical_indicators_data[pair] = data
         else:
@@ -57,7 +63,13 @@ if __name__ == "__main__":
         logger.info(f"Preparing time series data for pair: {pair}")
 
         # Use the active_run context for this pair to ensure all logs go to the same run
-        with active_run(pair) as run:
+        # Get the run ID we created earlier
+        current_run_id = pair_run_ids.get(pair)
+        
+        # Use the active_run context with the specific run ID
+        with active_run(pair, run_id=current_run_id) as run:
+            logger.info(f"Using MLflow run {run.info.run_id} for data preparation of {pair}")
+            
             features_df, target, scaler = prepare_time_series_data(
                 technical_indicators_data[pair],
                 prediction_horizon=config.prediction_horizon,
@@ -119,10 +131,44 @@ if __name__ == "__main__":
             else:
                 logger.warning(f"No successful models for {pair}")
 
-        # Save the top models for future reference
-        logger.info("Model training and evaluation completed successfully")
+        # Now perform hyperparameter tuning on the top models
+        logger.info("Starting hyperparameter tuning for top models")
+        n_trials = config.n_trials if hasattr(config, "n_trials") else 50
+        timeout = config.tuning_timeout if hasattr(config, "tuning_timeout") else None
+        cv_folds = config.cv_folds if hasattr(config, "cv_folds") else 5
 
-    except Exception as e:
-        logger.error(f"Error in model training phase: {str(e)}")
+        # Initialize the ModelTuner
+        model_tuner = ModelTuner(
+            n_trials=n_trials,
+            timeout=timeout,
+            cv_folds=cv_folds,
+            random_state=config.random_state if hasattr(config, "random_state") else 42,
+        )
+
+        # Tune the top models - will use the same runs created during training
+        best_tuned_models = model_tuner.tune_top_models(
+            all_top_models, train_val_test_data
+        )
+
+        # Log the best tuned models for each pair
+        for pair, model_info in best_tuned_models.items():
+            if model_info["model"] is not None:
+                logger.info(
+                    f"Best tuned model for {pair}: {model_info['model_name']} "
+                    f"with MAE: {model_info['mae']:.6f}"
+                )
+                logger.info(f"Best parameters: {model_info['params']}")
+            else:
+                logger.warning(f"No successful tuned model for {pair}")
+
+        logger.info(
+            "Model training, evaluation and hyperparameter tuning completed successfully"
+        )
+
+    except (ValueError, RuntimeError, ImportError, TypeError, MemoryError) as e:
+        logger.error(f"Error in model training or tuning phase: {str(e)}")
+        import traceback
+
+        logger.error(traceback.format_exc())
 
     logger.info("Crypto price prediction workflow completed")

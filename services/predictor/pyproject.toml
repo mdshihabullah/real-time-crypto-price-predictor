@@ -16,6 +16,7 @@ dependencies = [
     "risingwave-py>=0.0.1",
     "scikit-learn>=1.6.1",
     "ydata-profiling>=4.16.1",
+    "optuna>=4.3.0",
 ]
 
 [build-system]
