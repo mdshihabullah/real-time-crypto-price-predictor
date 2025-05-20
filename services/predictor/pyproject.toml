@@ -15,8 +15,11 @@ dependencies = [
     "mlflow>=2.22.0",
     "risingwave-py>=0.0.1",
     "scikit-learn>=1.6.1",
-    "ydata-profiling>=4.16.1",
+    "htmlmin2>=0.1.13",
+    "ydata-profiling>=4.6.3",
     "optuna>=4.3.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [build-system]
