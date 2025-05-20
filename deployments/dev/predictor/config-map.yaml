@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: predictor-config
+  namespace: services
+data:
+  # RisingWave DB config
+  risingwave_host: "risingwave.risingwave.svc.cluster.local"
+  risingwave_port: "4567"
+  risingwave_db: "dev"
+  risingwave_user: "root"
+  risingwave_password: ""
+  
+  # MLflow settings
+  mlflow_tracking_uri: "mlflow-tracking.mlflow.svc.cluster.local:80"
+  mlflow_experiment_name: "crypto_price_prediction"
+  
+  # Model settings
+  prediction_horizon: "5" # in minutes
+  handle_na_strategy: "drop"
+  train_window: "60" # in days
+  validation_window: "14" # in days
+  test_window: "7" # in days
+  max_trials: "3" # for hyperparameter tuning
+  top_n_models: "3" # number of top models to select

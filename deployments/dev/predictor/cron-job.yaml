@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: predictor-schedule
+  namespace: services
+  labels:
+    app: predictor-schedule
+spec:
+  schedule: "0 */1 * * *"  # Run every 1 hour
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: predictor
+            image: predictor:dev
+            imagePullPolicy: Never
+            envFrom:
+            - configMapRef:
+                name: predictor-config
+            - secretRef:
+                name: predictor-mlflow-credentials
+            resources:
+              limits:
+                memory: "2Gi"
+                cpu: "1000m"
+              requests:
+                memory: "1Gi"
+                cpu: "500m"
+            volumeMounts:
+            - name: reports-volume
+              mountPath: /app/drift_reports
+            - name: reports-volume
+              mountPath: /app/reports
+          volumes:
+          - name: reports-volume
+            emptyDir: {}
+          restartPolicy: OnFailure
