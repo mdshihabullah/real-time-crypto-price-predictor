@@ -10,7 +10,3 @@ kind: Kustomization
 namespace: services
 resources:
   - ./technical_indicators.yaml
-
-commonLabels:
-  app.kubernetes.io/name: technical-indicators
-  app.kubernetes.io/part-of: real-time-crypto-price-predictor

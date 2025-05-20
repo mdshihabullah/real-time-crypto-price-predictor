@@ -10,7 +10,3 @@ kind: Kustomization
 namespace: services
 resources:
   - ./trades.yaml
-
-commonLabels:
-  app.kubernetes.io/name: trades
-  app.kubernetes.io/part-of: real-time-crypto-price-predictor

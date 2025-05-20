@@ -13,7 +13,3 @@ resources:
   - ./config-map.yaml
   - ./secrets.yaml
   - ./cron-job.yaml
-
-commonLabels:
-  app.kubernetes.io/name: predictor
-  app.kubernetes.io/part-of: real-time-crypto-price-predictor

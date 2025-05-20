@@ -10,7 +10,3 @@ kind: Kustomization
 namespace: services
 resources:
   - ./candles.yaml
-
-commonLabels:
-  app.kubernetes.io/name: candles
-  app.kubernetes.io/part-of: real-time-crypto-price-predictor
