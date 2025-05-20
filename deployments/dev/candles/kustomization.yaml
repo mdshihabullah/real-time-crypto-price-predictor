@@ -1,0 +1,16 @@
+#
+#  https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+#
+#  kustomize build deployments/dev/candles | kubectl apply -f -
+#
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: services
+resources:
+  - ./candles.yaml
+
+commonLabels:
+  app.kubernetes.io/name: candles
+  app.kubernetes.io/part-of: real-time-crypto-price-predictor

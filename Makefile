@@ -38,8 +38,11 @@ deploy-for-dev: build-for-dev push-for-dev
 	# Create namespace if it doesn't exist
 	kubectl create namespace services --dry-run=client -o yaml | kubectl apply -f -
 	
-	kubectl delete -f deployments/dev/${service}/${service}.yaml --ignore-not-found=true
-	kubectl apply -f deployments/dev/${service}/${service}.yaml
+	# Clean up any existing deployments
+	kubectl delete deployment,cronjob -n services -l app.kubernetes.io/name=${service} --ignore-not-found=true
+	
+	# Apply using kustomize
+	kubectl apply -k deployments/dev/${service}/
 
 info:
 	echo "Kafka UI is now accessible at http://localhost:19092"
