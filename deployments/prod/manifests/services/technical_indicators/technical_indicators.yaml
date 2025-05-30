@@ -52,13 +52,13 @@ spec:
         - name: KAFKA_INPUT_TOPIC
           value: "candles"
         - name: KAFKA_OUTPUT_TOPIC
-          value: "technical_indicators"
+          value: "technical-indicators"
         - name: KAFKA_CONSUMER_GROUP
           value: "ta_indicators_consumer_group"
         - name: WINDOW_IN_SEC
           value: "60"
         - name: RISINGWAVE_TABLE_NAME
-          value: "technical_indicators"
+          value: "technical-indicators"
         - name: LOG_LEVEL
           value: "INFO"
         - name: STATE_DIR

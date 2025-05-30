@@ -92,3 +92,17 @@ spec:
   config:
     retention.ms: 604800000  # 7 days
     segment.bytes: 1073741824  # 1 GB 
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: technical-indicators
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: crypto-kafka-cluster
+spec:
+  partitions: 2
+  replicas: 2
+  config:
+    retention.ms: 604800000  # 7 days
+    segment.bytes: 1073741824  # 1 GB
