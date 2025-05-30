@@ -1,7 +1,12 @@
 """Main script for crypto price prediction workflow"""
 
+import datetime
+
+import mlflow
+import pandas as pd
 from loguru import logger
 
+from predictor.baseline_model import IdentityBaselineModel
 from predictor.config import config
 from predictor.data_fetcher import fetch_technical_indicators_data, get_available_pairs
 from predictor.data_preprocessor import prepare_time_series_data, split_timeseries_data
@@ -10,8 +15,10 @@ from predictor.mlflow_logger import (
     log_data_to_mlflow,
     log_profile_report_to_mlflow,
     log_to_mlflow,
+    register_model,
     reset_pair_runs,
     setup_mlflow,
+    should_register_model,
 )
 from predictor.model_trainer import ModelTrainer
 from predictor.model_tuner import ModelTuner
@@ -21,7 +28,7 @@ if __name__ == "__main__":
 
     # Setup MLflow
     setup_mlflow()
-    
+
     # Reset pair runs at the start to ensure clean state
     reset_pair_runs()
 
@@ -36,8 +43,43 @@ if __name__ == "__main__":
     for pair in pairs:
         logger.info(f"Fetching technical indicators data for pair: {pair}")
         data = fetch_technical_indicators_data(pair)
-        # TODO: for debug purpose, remove .head(N)
-        data = data.head(100)
+
+        # Limit data to training_data_horizon days if specified
+        if (
+            hasattr(config, "training_data_horizon")
+            and config.training_data_horizon is not None
+        ):
+            # Only filter if training_data_horizon is a positive number
+            if config.training_data_horizon > 0:
+                # Convert timestamp column to datetime if it's not already
+                if (
+                    "timestamp" in data.columns
+                    and not pd.api.types.is_datetime64_any_dtype(data["timestamp"])
+                ):
+                    data["timestamp"] = pd.to_datetime(data["timestamp"])
+
+                # Filter data to only include the last training_data_horizon days
+                cutoff_date = datetime.datetime.now() - datetime.timedelta(
+                    days=config.training_data_horizon
+                )
+                logger.info(
+                    f"Limiting data for {pair} to last {config.training_data_horizon} days (from {cutoff_date})"
+                )
+                data = data[data["timestamp"] >= cutoff_date]
+            else:
+                logger.info(
+                    f"Using all available data for {pair} (training_data_horizon = {config.training_data_horizon})"
+                )
+        else:
+            logger.info(
+                f"Using all available data for {pair} (training_data_horizon not set)"
+            )
+
+        # For debugging purposes only - remove for production
+        if len(data) > 100:
+            data = data.head(100)
+            logger.warning("Debug mode: Limited data to 100 rows for testing")
+
         if not data.empty:
             logger.info(f"Fetched {len(data)} rows of data for pair: {pair}")
             # Log data and save the run ID
@@ -65,11 +107,13 @@ if __name__ == "__main__":
         # Use the active_run context for this pair to ensure all logs go to the same run
         # Get the run ID we created earlier
         current_run_id = pair_run_ids.get(pair)
-        
+
         # Use the active_run context with the specific run ID
         with active_run(pair, run_id=current_run_id) as run:
-            logger.info(f"Using MLflow run {run.info.run_id} for data preparation of {pair}")
-            
+            logger.info(
+                f"Using MLflow run {run.info.run_id} for data preparation of {pair}"
+            )
+
             features_df, target, scaler = prepare_time_series_data(
                 technical_indicators_data[pair],
                 prediction_horizon=config.prediction_horizon,
@@ -79,8 +123,14 @@ if __name__ == "__main__":
             features_data[pair] = features_df
             target_data[pair] = target
 
+            # Get the feature columns (excluding pair which is not a feature)
+            feature_columns = [col for col in features_df.columns if col != "pair"]
+            logger.info(f"Feature columns for {pair}: {len(feature_columns)} columns")
+
             # These logs will go to the same run
-            log_data_to_mlflow(pair, features_df, log_params=False)
+            log_data_to_mlflow(
+                pair, features_df, log_params=False, feature_columns=feature_columns
+            )
             log_profile_report_to_mlflow(pair, features_df)
 
             # Split data into train and test sets
@@ -150,19 +200,117 @@ if __name__ == "__main__":
             all_top_models, train_val_test_data
         )
 
-        # Log the best tuned models for each pair
+        # Create baseline models and evaluate them for each pair
+        logger.info("Creating and evaluating baseline models for each pair")
+        baseline_models = {}
+        baseline_maes = {}
+
+        for pair, data in train_val_test_data.items():
+            try:
+                # Create baseline model instance
+                baseline_model = IdentityBaselineModel()
+                logger.info(f"Created baseline model for {pair}")
+
+                # Get feature columns for this pair
+                feature_columns = data["X_train"].columns.tolist()
+
+                # Create a run specifically for the baseline model
+                RUN_NAME = (
+                    f"{pair.replace('/', '_')}_baseline_{config.prediction_horizon}"
+                )
+                with active_run(
+                    pair,
+                    run_name=RUN_NAME,
+                    model_name="baseline",
+                    prediction_horizon=config.prediction_horizon,
+                ) as run:
+                    # Fit the baseline model (doesn't really do anything for our identity model)
+                    baseline_model.fit(data["X_train"], data["y_train"])
+
+                    # Get the baseline performance using actual data
+                    baseline_mae = baseline_model.get_baseline_performance(data["y_test"])
+
+                    # Log the baseline model's performance
+                    logger.info(f"Baseline model MAE for {pair}: {baseline_mae:.6f}")
+                    mlflow.log_metric("mae", baseline_mae)
+                    mlflow.log_param("model_type", "baseline")
+                    mlflow.log_param("feature_columns", feature_columns)
+
+                    # Save for comparison with tuned models
+                    baseline_models[pair] = baseline_model
+                    baseline_maes[pair] = baseline_mae
+
+                    # Register the baseline model
+                    register_model(
+                        baseline_model,
+                        "baseline",
+                        pair,
+                        config.prediction_horizon,
+                        feature_columns,
+                        baseline_mae,
+                        data["X_test"],
+                    )
+            except Exception as e:
+                logger.error(f"Error creating baseline model for {pair}: {str(e)}")
+                import traceback
+
+                logger.error(traceback.format_exc())
+
+        # Log the best tuned models for each pair and register them if they meet criteria
         for pair, model_info in best_tuned_models.items():
             if model_info["model"] is not None:
+                model = model_info["model"]
+                model_name = model_info["model_name"]
+                mae = model_info["mae"]
+
                 logger.info(
-                    f"Best tuned model for {pair}: {model_info['model_name']} "
-                    f"with MAE: {model_info['mae']:.6f}"
+                    f"Best tuned model for {pair}: {model_name} with MAE: {mae:.6f}"
                 )
                 logger.info(f"Best parameters: {model_info['params']}")
+
+                # Get feature columns for this pair
+                feature_columns = train_val_test_data[pair]["X_train"].columns.tolist()
+
+                # Get baseline MAE for comparison
+                baseline_mae = baseline_maes.get(pair)
+
+                # Check if the model should be registered
+                if should_register_model(
+                    model,
+                    pair,
+                    model_name,
+                    config.prediction_horizon,
+                    mae,
+                    baseline_mae,
+                ):
+                    # Create a run specifically for this final model
+                    RUN_NAME = f"{pair.replace('/', '_')}_{model_name}_{config.prediction_horizon}"
+                    with active_run(
+                        pair,
+                        run_name=RUN_NAME,
+                        model_name=model_name,
+                        prediction_horizon=config.prediction_horizon,
+                    ) as run:
+                        # Register the model
+                        model_uri = register_model(
+                            model,
+                            model_name,
+                            pair,
+                            config.prediction_horizon,
+                            feature_columns,
+                            mae,
+                            train_val_test_data[pair]["X_test"],
+                        )
+
+                        if model_uri:
+                            logger.info(f"Successfully registered model: {model_uri}")
+                        else:
+                            logger.warning(f"Failed to register model for {pair}")
             else:
                 logger.warning(f"No successful tuned model for {pair}")
 
         logger.info(
-            "Model training, evaluation and hyperparameter tuning completed successfully"
+            "Model training, evaluation, hyperparameter tuning and registration completed successfully"
         )
 
     except (ValueError, RuntimeError, ImportError, TypeError, MemoryError) as e:

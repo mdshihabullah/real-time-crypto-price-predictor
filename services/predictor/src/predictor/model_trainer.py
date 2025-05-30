@@ -1,6 +1,7 @@
 """Module for training and evaluating predictive models using LazyPredict."""
 
 import os
+import traceback
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import mlflow
@@ -10,7 +11,7 @@ from lazypredict.Supervised import LazyRegressor
 from loguru import logger
 from sklearn.metrics import mean_absolute_error
 
-from predictor.mlflow_logger import log_models_to_mlflow
+from predictor.mlflow_logger import active_run, get_active_run_id, log_models_to_mlflow
 
 
 class ModelTrainer:
@@ -130,6 +131,7 @@ class ModelTrainer:
                     zip(
                         top_models,
                         models["mean_absolute_error_metric"].head(self.top_n_models),
+                        strict=True,
                     )
                 ):
                     logger.info(f"{i + 1}. {model_name}: MAE = {mae:.6f}")
@@ -158,8 +160,6 @@ class ModelTrainer:
 
         except Exception as e:
             logger.error(f"Error training models for {pair_name}: {str(e)}")
-            import traceback
-
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None, []
         finally:
@@ -185,8 +185,6 @@ class ModelTrainer:
         for pair, data in train_val_test_data.items():
             try:
                 # Use the active_run context manager to ensure consistent runs
-                from predictor.mlflow_logger import active_run, get_active_run_id
-
                 # Check if we already have a run for this pair
                 existing_run_id = get_active_run_id(pair)
                 is_new_run = existing_run_id is None
@@ -230,8 +228,6 @@ class ModelTrainer:
 
             except Exception as e:
                 logger.error(f"Failed to train models for {pair}: {str(e)}")
-                import traceback
-
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 top_n_models[pair] = []
 

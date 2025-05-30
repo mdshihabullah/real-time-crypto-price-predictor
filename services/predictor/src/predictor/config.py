@@ -1,7 +1,7 @@
 """Config settings for the predictor service"""
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,7 +54,9 @@ class Settings(BaseSettings):
     validation_window: int = DEFAULT_VALIDATION_WINDOW
     test_window: int = DEFAULT_TEST_WINDOW
     max_trials: int = DEFAULT_MAX_TRIALS
-    top_n_models: int = 3
+    top_n_models: int = 1
+    # Default number of days to use for training data, None for all available data
+    training_data_horizon: Optional[int] = None
 
     # Available pairs for prediction, if empty all pairs will be used
     pairs: Optional[str] = None

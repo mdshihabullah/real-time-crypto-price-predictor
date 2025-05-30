@@ -16,7 +16,9 @@ import mlflow
 import pandas as pd
 import ydata_profiling
 from loguru import logger
-
+from mlflow.models.signature import infer_signature
+from mlflow.tracking.client import MlflowClient
+from mlflow.exceptions import MlflowException
 from predictor.config import config
 
 
@@ -111,7 +113,11 @@ _PAIR_RUNS = {}
 
 @contextlib.contextmanager
 def active_run(
-    pair_name: str, run_name: Optional[str] = None, run_id: Optional[str] = None
+    pair_name: str,
+    run_name: Optional[str] = None,
+    run_id: Optional[str] = None,
+    model_name: Optional[str] = None,
+    prediction_horizon: Optional[int] = None,
 ) -> Generator[mlflow.ActiveRun, None, None]:
     """
     Get or create an MLflow run within the appropriate experiment for a cryptocurrency pair.
@@ -137,7 +143,7 @@ def active_run(
         mlflow.set_experiment(experiment_id=experiment_id)
         logger.debug(f"Set active experiment ID: {experiment_id}")
 
-    except Exception as e:
+    except MlflowException as e:
         logger.error(f"Error setting experiment: {str(e)}")
         # Try creating a new experiment with timestamp as fallback
         new_name = f"{config.mlflow_experiment_name}_{pair_name.replace('/', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -147,7 +153,13 @@ def active_run(
 
     # Generate run name if not provided
     if run_name is None:
-        run_name = f"{pair_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Format: pair_name_model_name_prediction_horizon (if model_name and prediction_horizon provided)
+        if model_name and prediction_horizon:
+            # Replace / with _ in pair_name for consistency
+            formatted_pair_name = pair_name.replace("/", "_")
+            run_name = f"{formatted_pair_name}_{model_name}_{prediction_horizon}"
+        else:
+            run_name = f"{pair_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     # First, check if there's already an active run that's specifically for this pair
     current_run = mlflow.active_run()
@@ -168,7 +180,7 @@ def active_run(
                     f"Ending active run for different pair: {current_run.info.run_id}"
                 )
                 mlflow.end_run()
-        except Exception as e:
+        except MlflowException as e:
             logger.error(f"Error checking current run: {str(e)}")
             mlflow.end_run()  # End the run to be safe
 
@@ -180,7 +192,7 @@ def active_run(
             _PAIR_RUNS[pair_name] = run_id  # Update the dictionary
             yield run
             return
-        except Exception as e:
+        except MlflowException as e:
             logger.error(f"Error using provided run ID {run_id}: {str(e)}")
             # Fall through to other options
 
@@ -192,7 +204,7 @@ def active_run(
             logger.debug(f"Using existing run for {pair_name}: {existing_run_id}")
             yield run
             return
-        except Exception as e:
+        except MlflowException as e:
             logger.error(f"Error using existing run {existing_run_id}: {str(e)}")
             # Remove the invalid run ID
             _PAIR_RUNS.pop(pair_name, None)
@@ -209,12 +221,12 @@ def active_run(
         try:
             mlflow.log_param("pair", pair_name)
             mlflow.log_param("creation_timestamp", datetime.now().isoformat())
-        except Exception as param_error:
+        except MlflowException as param_error:
             logger.warning(f"Could not log initial parameters: {str(param_error)}")
 
         yield run
         return
-    except Exception as e:
+    except MlflowException as e:
         logger.error(f"Error creating new run: {str(e)}")
         # One final attempt with a unique name
         try:
@@ -227,12 +239,12 @@ def active_run(
 
             try:
                 mlflow.log_param("pair", pair_name)
-            except Exception:
+            except MlflowException:
                 pass  # Just ignore errors at this point
 
             yield run
             return
-        except Exception as final_e:
+        except MlflowException as final_e:
             logger.error(f"All attempts to create an MLflow run failed: {str(final_e)}")
             # Create a dummy run object to avoid breaking calling code
             yield type(
@@ -244,7 +256,10 @@ def active_run(
 
 
 def log_data_to_mlflow(
-    pair_name: str, df: pd.DataFrame, log_params: bool = True
+    pair_name: str,
+    df: pd.DataFrame,
+    log_params: bool = True,
+    feature_columns: Optional[List[str]] = None,
 ) -> None:
     """
     Log data and profile report to MLflow for a specific cryptocurrency pair
@@ -257,9 +272,14 @@ def log_data_to_mlflow(
     # Log basic data stats
     if log_params:
         try:
-            # Use metrics instead of parameters for things that might change
-            mlflow.log_metric("data_rows", len(df))
-            mlflow.log_metric("data_columns", len(df.columns))
+            # Log parameters related to the data
+            mlflow.log_param("data_shape", str(df.shape))
+            mlflow.log_param("data_columns_count", len(df.columns))
+            mlflow.log_param("pair", pair_name)
+
+            # Log feature columns as a list if provided
+            if feature_columns is not None:
+                mlflow.log_param("feature_columns", feature_columns)
 
             # Use a unique parameter name with timestamp to avoid conflicts
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -267,7 +287,7 @@ def log_data_to_mlflow(
 
             # Log parameters that are safe to log once
             mlflow.log_param(f"{param_prefix}_pair", pair_name)
-        except Exception as e:
+        except MlflowException as e:
             logger.warning(f"Could not log data parameters: {str(e)}")
 
     # Log sample data directly
@@ -279,7 +299,7 @@ def log_data_to_mlflow(
             os.unlink(tmp.name)  # Clean up the temporary file
 
             logger.info(f"Logged data samples for {pair_name} to MLflow")
-    except Exception as e:
+    except MlflowException as e:
         logger.warning(f"Could not log data samples: {str(e)}")
 
 
@@ -302,7 +322,7 @@ def log_profile_report_to_mlflow(pair_name: str, df: pd.DataFrame) -> None:
             os.unlink(tmp.name)  # Clean up the temporary file
 
         logger.info(f"Logged profile report for {pair_name} to MLflow")
-    except Exception as e:
+    except MlflowException as e:
         logger.warning(f"Error creating profile report for {pair_name}: {str(e)}")
         import traceback
 
@@ -338,7 +358,7 @@ def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
                     # Create a unique workflow ID for this logging session
                     workflow_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                     mlflow.log_param(f"{workflow_id}_step", "initial_data_logging")
-                except Exception as e:
+                except MlflowException as e:
                     logger.warning(f"Could not log workflow parameters: {str(e)}")
 
             # Check if data is a DataFrame or a tuple from prepare_time_series_data
@@ -346,7 +366,7 @@ def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
                 log_data_to_mlflow(pair_name, data, log_params=is_new_run)
                 try:
                     log_profile_report_to_mlflow(pair_name, data)
-                except Exception as e:
+                except MlflowException as e:
                     logger.warning(
                         f"Error generating or logging profile report: {str(e)}"
                     )
@@ -366,7 +386,7 @@ def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
                     combined_df = X.copy()
                     combined_df["target"] = y
                     log_profile_report_to_mlflow(pair_name, combined_df)
-                except Exception as e:
+                except MlflowException as e:
                     logger.warning(
                         f"Error generating or logging combined profile report: {str(e)}"
                     )
@@ -377,7 +397,7 @@ def log_to_mlflow(pair_name: str, data: Union[pd.DataFrame, Tuple]) -> str:
 
         logger.info(f"Logged data to MLflow run {run_id} for {pair_name}")
         return run_id
-    except Exception as e:
+    except MlflowException as e:
         logger.error(f"Error logging to MLflow: {str(e)}")
         import traceback
 
@@ -471,7 +491,7 @@ def log_models_to_mlflow(
                                     f"{pair_name}_{model_name}_{metric}",
                                     float(model_data[metric]),
                                 )
-                            except Exception as e:
+                            except MlflowException as e:
                                 logger.warning(
                                     f"Failed to log metric {metric} for {model_name}: {str(e)}"
                                 )
@@ -501,13 +521,13 @@ def log_models_to_mlflow(
                     data=models_df,
                     artifact_file=f"model_metrics/{pair_name}_models_comparison_{timestamp}.json",
                 )
-            except Exception as e:
+            except MlflowException as e:
                 logger.warning(f"Failed to log model table: {str(e)}")
 
             logger.success(
                 f"Model comparison results logged for {pair_name} (Run ID: {run.info.run_id})"
             )
-    except Exception as e:
+    except MlflowException as e:
         logger.error(f"Error logging models to MLflow: {str(e)}")
 
 
@@ -557,3 +577,191 @@ def reset_parent_runs():
     Alias for reset_pair_runs for backward compatibility.
     """
     return reset_pair_runs()
+
+
+def register_model(
+    model, model_name, pair_name, prediction_horizon, feature_columns, mae, X_test=None
+):
+    """
+    Register a model to the MLflow Model Registry.
+
+    Args:
+        model: The trained model object
+        model_name (str): Name of the model algorithm
+        pair_name (str): Name of the cryptocurrency pair
+        prediction_horizon (int): Prediction horizon in minutes
+        feature_columns (list): List of feature column names used for training
+        mae (float): Mean Absolute Error of the model
+        X_test (pd.DataFrame, optional): Test dataset to infer model signature
+
+    Returns:
+        str: The model version URI if registration is successful, None otherwise
+    """
+    try:
+        # Format the registered model name: pair_name_model_name_prediction_horizon
+        # Replace / with _ in pair_name for consistency in model names
+        formatted_pair_name = pair_name.replace("/", "_")
+        registered_model_name = (
+            f"{formatted_pair_name}_{model_name}_{prediction_horizon}"
+        )
+
+        logger.info(
+            f"Registering model {registered_model_name} to MLflow Model Registry"
+        )
+
+        # Create model signature if test data is provided
+        signature = None
+        if X_test is not None:
+            # Generate dummy predictions just to infer the signature
+            dummy_predictions = model.predict(X_test.head(1))
+            signature = infer_signature(X_test.head(1), dummy_predictions)
+
+            # Log the model to MLflow
+            mlflow.sklearn.log_model(
+                model,
+                "model",
+                registered_model_name=registered_model_name,
+                signature=signature,
+            )
+
+            # Log model metadata within this specific run
+            mlflow.log_param("model_name", model_name)
+            mlflow.log_param("prediction_horizon", prediction_horizon)
+            mlflow.log_param("feature_columns", feature_columns)
+            mlflow.log_metric("mae", mae)
+
+            logger.info(f"Successfully registered model {registered_model_name}")
+
+        # Get the model URI
+        client = MlflowClient()
+        model_versions = client.search_model_versions(f"name='{registered_model_name}'")
+        if model_versions:
+            # Get the latest version
+            latest_version = max([int(mv.version) for mv in model_versions])
+            model_uri = f"models:/{registered_model_name}/{latest_version}"
+            logger.info(f"Model registered with URI: {model_uri}")
+            return model_uri
+        else:
+            logger.warning(
+                f"Model {registered_model_name} was registered but no versions found"
+            )
+            return None
+
+    except MlflowException as e:
+        logger.error(f"Error registering model {model_name} for {pair_name}: {str(e)}")
+        return None
+
+
+def get_latest_model_version(pair_name, model_name, prediction_horizon):
+    """
+    Get the latest version of a registered model from the MLflow Model Registry.
+
+    Args:
+        pair_name (str): Name of the cryptocurrency pair
+        model_name (str): Name of the model algorithm
+        prediction_horizon (int): Prediction horizon in minutes
+
+    Returns:
+        tuple: (model_version, model_mae) if a model exists, (None, None) otherwise
+    """
+    try:
+        formatted_pair_name = pair_name.replace("/", "_")
+        registered_model_name = (
+            f"{formatted_pair_name}_{model_name}_{prediction_horizon}"
+        )
+
+        # Get the MLflow client
+        client = MlflowClient()
+
+        # Search for the model
+        model_versions = client.search_model_versions(f"name='{registered_model_name}'")
+
+        if not model_versions:
+            logger.info(f"No registered model found for {registered_model_name}")
+            return None, None
+
+        # Find the latest version
+        latest_version = max([int(mv.version) for mv in model_versions])
+        model_version = next(
+            (mv for mv in model_versions if mv.version == str(latest_version)), None
+        )
+
+        if model_version:
+            # Get the run that created this model version
+            run = client.get_run(model_version.run_id)
+            # Get the MAE from the run metrics
+            mae = run.data.metrics.get("mae")
+
+            logger.info(
+                f"Found model {registered_model_name} version {latest_version} with MAE: {mae}"
+            )
+            return model_version, mae
+
+        return None, None
+
+    except MlflowException as e:
+        logger.error(f"Error getting latest model version: {str(e)}")
+        return None, None
+
+
+def should_register_model(
+    model, pair_name, model_name, prediction_horizon, mae, baseline_mae=None
+):
+    """
+    Determine if a model should be registered based on comparison with existing models.
+
+    A model should be registered if:
+    1. There is no existing model for this pair/model/horizon, OR
+    2. The new model has better MAE than the existing model, OR
+    3. The new model has better MAE than the baseline model
+
+    Args:
+        model: The trained model
+        pair_name (str): Name of the cryptocurrency pair
+        model_name (str): Name of the model algorithm
+        prediction_horizon (int): Prediction horizon in minutes
+        mae (float): Mean Absolute Error of the new model
+        baseline_mae (float, optional): Mean Absolute Error of the baseline model
+
+    Returns:
+        bool: True if the model should be registered, False otherwise
+    """
+    try:
+        # Get the latest version of this model if it exists
+        existing_model_version, existing_mae = get_latest_model_version(
+            pair_name, model_name, prediction_horizon
+        )
+
+        # Case 1: No existing model
+        if existing_model_version is None:
+            logger.info(
+                f"No existing model found for {pair_name} with {model_name}. Will register new model."
+            )
+            return True
+
+        # Case 2: New model is better than existing model
+        if existing_mae is not None and mae < existing_mae:
+            logger.info(
+                f"New model MAE ({mae:.6f}) is better than existing model MAE ({existing_mae:.6f}). "
+                f"Will register new model."
+            )
+            return True
+
+        # Case 3: New model is better than baseline model
+        if baseline_mae is not None and mae < baseline_mae:
+            logger.info(
+                f"New model MAE ({mae:.6f}) is better than baseline model MAE ({baseline_mae:.6f}). "
+                f"Will register new model."
+            )
+            return True
+
+        logger.info(
+            f"New model MAE ({mae:.6f}) is not better than existing model MAE ({existing_mae:.6f}) "
+            f"or baseline MAE ({baseline_mae or 'N/A'}). Will not register."
+        )
+        return False
+
+    except MlflowException as e:
+        logger.error(f"Error determining if model should be registered: {str(e)}")
+        # In case of error, default to registering the model
+        return True
