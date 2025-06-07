@@ -1,0 +1,145 @@
+# RisingWave Production Values for Digital Ocean Kubernetes
+# Optimized for 2×2vCPU nodes (4 cores total, ~3.8 cores allocatable)
+#
+# Chart: https://github.com/risingwavelabs/helm-charts/tree/main/charts/risingwave
+# Values: https://github.com/risingwavelabs/helm-charts/blob/main/charts/risingwave/values.yaml
+
+tags:
+  bundle: true
+  postgresql: true
+  minio: true
+
+# Use bundled PostgreSQL for metadata storage
+metaStore:
+  postgresql:
+    enabled: true
+    host: postgresql
+    port: 5432
+    database: risingwave
+    authentication:
+      username: "risingwave"
+      password: "risingwave123"
+
+# Use bundled MinIO for state storage
+stateStore:
+  minio:
+    enabled: true
+    endpoint: minio:9000
+    bucket: risingwave
+    authentication:
+      username: minioadmin
+      password: "minioadmin123"
+
+# Meta component - brain of RisingWave (reduced resources)
+metaComponent:
+  resources:
+    limits:
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  
+  # Enable persistent storage for metadata
+  persistentVolume:
+    enabled: true
+    size: 5Gi
+    storageClass: "do-block-storage"
+
+# Frontend component - SQL gateway (reduced resources)
+frontendComponent:
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      cpu: 100m
+      memory: 1Gi
+  
+  # Expose service for external access
+  service:
+    type: LoadBalancer
+    port: 4567
+
+# Compute component - where the magic happens (reduced resources)
+computeComponent:
+  # Start with 1 replica to fit in available resources
+  replicaCount: 1
+  
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      cpu: 300m
+      memory: 1Gi
+  
+  # Disable auto-scaling for now to save resources
+  autoscaling:
+    enabled: false
+
+# Compactor component - for data compaction (reduced resources)
+compactorComponent:
+  resources:
+    limits:
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+# PostgreSQL configuration (bundled) - reduced resources
+postgresql:
+  auth:
+    postgresPassword: "postgres123"
+    database: "risingwave"
+    username: "risingwave"
+    password: "risingwave123"
+  
+  primary:
+    # Reduced resources for PostgreSQL
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 512Mi
+    
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: "do-block-storage"
+    
+    # PostgreSQL tuning for smaller resources
+    extendedConfiguration: |
+      max_connections = 100
+      shared_buffers = 128MB
+      effective_cache_size = 384MB
+      maintenance_work_mem = 64MB
+      checkpoint_completion_target = 0.9
+      wal_buffers = 8MB
+      default_statistics_target = 100
+      random_page_cost = 1.1
+      effective_io_concurrency = 200
+      work_mem = 4MB
+      min_wal_size = 512MB
+      max_wal_size = 1GB
+
+# MinIO configuration (bundled) - reduced resources
+minio:
+  mode: standalone
+  
+  auth:
+    rootUser: "minioadmin"
+    rootPassword: "minioadmin123"
+  
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: "do-block-storage"
+  
+  resources:
+    limits:
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  
+  # Create default bucket on startup
+  defaultBuckets: "risingwave,mlflow"

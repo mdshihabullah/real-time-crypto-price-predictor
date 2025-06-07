@@ -1,0 +1,164 @@
+# Grafana Production Values for Digital Ocean Kubernetes
+# Monitoring and visualization for crypto price predictor
+# Optimized for limited cluster resources
+#
+# Chart: https://github.com/grafana/helm-charts
+# Values: https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
+
+# Number of replicas
+replicas: 1
+
+# Resources - reduced allocation for resource-constrained cluster
+resources:
+  limits:
+    memory: 1Gi
+  requests:
+    cpu: 50m
+    memory: 512Mi
+
+# Service configuration
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 3000
+
+# Admin credentials
+adminUser: admin
+adminPassword: grafana-admin-2024
+
+# Environment variables
+env:
+  GF_DATE_FORMATS_USE_BROWSER_LOCALE: true
+  GF_EXPLORE_ENABLED: true
+  GF_FEATURE_TOGGLES_ENABLE: publicDashboards
+  GF_SECURITY_COOKIE_SAMESITE: grafana
+  GF_SERVER_ROOT_URL: http://grafana.${DOMAIN}
+  GF_LOG_LEVEL: info
+
+# Grafana configuration
+grafana.ini:
+  analytics:
+    check_for_updates: false
+    check_for_plugin_updates: false
+    reporting_enabled: false
+  auth.basic:
+    enabled: true
+  auth.anonymous:
+    enabled: false
+    org_role: Viewer
+  news:
+    news_feed_enabled: false
+  server:
+    domain: grafana.${DOMAIN}
+    root_url: "%(protocol)s://%(domain)s/"
+
+# Dashboard providers
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: "Crypto Analytics"
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+# Data sources configuration
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      # RisingWave as PostgreSQL datasource
+      - name: RisingWave
+        type: postgres
+        url: risingwave.risingwave.svc.cluster.local:4567
+        user: root
+        database: dev
+        uid: risingwave
+        isDefault: true
+        jsonData:
+          sslmode: disable
+          postgresVersion: 1200
+          timescaledb: false
+          maxOpenConns: 100
+          maxIdleConns: 100
+          connMaxLifetime: 14400
+        editable: true
+      
+      # Prometheus for metrics (optional)
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus-server.monitoring.svc.cluster.local
+        access: proxy
+        isDefault: false
+        editable: true
+
+# Persistence
+persistence:
+  enabled: true
+  type: pvc
+  storageClassName: "do-block-storage"
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+
+# Sidecar containers for dashboard/datasource provisioning
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    folder: /var/lib/grafana/dashboards
+    searchNamespace: ALL
+    provider:
+      foldersFromFilesStructure: true
+  
+  datasources:
+    enabled: true
+    label: grafana_datasource
+    searchNamespace: ALL
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+
+# Security context
+securityContext:
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+
+# Liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 60
+  timeoutSeconds: 30
+  failureThreshold: 10
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+
+# Enable plugins
+plugins:
+  - grafana-clock-panel
+  - grafana-simple-json-datasource
+  - grafana-worldmap-panel
+  - grafana-piechart-panel
+
+# RBAC
+rbac:
+  create: true
+  pspEnabled: false
+
+# Service account
+serviceAccount:
+  create: true
+  name: grafana
