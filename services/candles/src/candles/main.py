@@ -1,21 +1,16 @@
 """Main module for the candles service"""
 
 from datetime import timedelta
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 from quixstreams import Application
-from quixstreams.models import TimestampType, TopicConfig
+from quixstreams.models import TopicConfig
 
 from candles.config import config
 
 
-def custom_ts_extractor(
-    value: Any,
-    headers: Optional[List[Tuple[str, bytes]]],
-    timestamp: float,
-    timestamp_type: TimestampType,
-) -> int:
+def custom_ts_extractor(value: Any) -> int:
     """
     Specifying a custom timestamp extractor to use the timestamp from the message payload 
     instead of Kafka timestamp.
@@ -34,7 +29,7 @@ def init_candle(trade: dict) -> dict:
         'low': trade['price'],
         'close': trade['price'],
         'volume': trade['quantity'],
-        'timestamp_ms': trade['timestamp'],
+        'timestamp_ms': trade['timestamp_ms'],
         'pair': trade['product_id'],
     }
 
@@ -48,7 +43,7 @@ def update_candle(candle: dict, current_trade: dict) -> dict:
     candle['high'] = max(candle['high'], current_trade['price'])
     candle['low'] = min(candle['low'], current_trade['price'])
     candle['volume'] += current_trade['quantity']
-    candle['timestamp_ms'] = current_trade['timestamp']
+    candle['timestamp_ms'] = current_trade['timestamp_ms']
     candle['pair'] = current_trade['product_id']
 
     return candle
@@ -78,26 +73,36 @@ def run (
                                 replication_factor=1
                                 )
                             )
-    output_topic = app.topic(name=kafka_output_topic, value_serializer="json")
+    output_topic = app.topic(
+        name=kafka_output_topic,
+        value_serializer="json",
+        config=TopicConfig(
+            num_partitions=4,
+            replication_factor=1
+        )
+    )
 
     sdf = app.dataframe(topic=input_topic)
 
     sdf = (
-        # Define a tumbling window of 60s and grace period of 10s
+        # Define a tumbling window with grace period to handle late-arriving messages
         sdf.tumbling_window(
-        duration_ms=timedelta(seconds=window_in_sec),
+            duration_ms=timedelta(seconds=window_in_sec),
+            grace_ms=timedelta(seconds=10),  # Added grace period for late messages
         )
-        .reduce(reducer=update_candle,initializer=init_candle)
-
+        .reduce(reducer=update_candle, initializer=init_candle)
     )
+
     if emit_intermediate_candles:
         # Emit all intermediate candles to make the system more responsive
-        sdf = sdf.current()
+        # Using partition closing strategy for more timely updates across all pairs
+        sdf = sdf.current(closing_strategy="partition")
     else:
         # Emit only the final candle
-        sdf = sdf.final()
+        # Using partition closing strategy to ensure all pairs' windows close timely
+        sdf = sdf.final(closing_strategy="partition")
 
-        # Extract open, high, low, close, volume, timestamp_ms, pair from the dataframe
+    # Extract open, high, low, close, volume, timestamp_ms, pair from the dataframe
     sdf['open'] = sdf['value']['open']
     sdf['high'] = sdf['value']['high']
     sdf['low'] = sdf['value']['low']
@@ -141,5 +146,5 @@ if __name__ == "__main__":
         kafka_output_topic=config.kafka_output_topic,
         window_in_sec=config.window_in_sec,
         kafka_consumer_group=config.kafka_consumer_group,
-        emit_intermediate_candles=True
+        emit_intermediate_candles=config.emit_intermediate_candles
         )
