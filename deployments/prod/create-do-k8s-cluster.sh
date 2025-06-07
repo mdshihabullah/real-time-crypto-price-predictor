@@ -45,6 +45,11 @@ log "INFO" "Starting deployment to DigitalOcean Kubernetes cluster"
 
 # Source the deployment configuration file
 log "INFO" "Loading deployment configuration"
+if [ ! -f "deployment.config" ]; then
+    log "ERROR" "deployment.config file not found!"
+    log "ERROR" "Please ensure deployment.config exists in the current directory"
+    exit 1
+fi
 source deployment.config
 
 # Set Kubernetes config to use DO cluster
@@ -57,6 +62,15 @@ if [ ! -f "$KUBECONFIG" ]; then
 fi
 
 log "INFO" "Using DigitalOcean Kubernetes cluster with config: $KUBECONFIG"
+log "INFO" "Current context: $(kubectl config current-context 2>/dev/null || echo 'unknown')"
+
+# Verify cluster connectivity
+if ! kubectl get nodes &>/dev/null; then
+    log "ERROR" "Failed to connect to Kubernetes cluster"
+    log "ERROR" "Please check your kubeconfig and cluster status"
+    exit 1
+fi
+
 kubectl get nodes
 
 # Function to create necessary namespaces
@@ -262,20 +276,34 @@ display_service_info() {
     local KAFKA_UI_IP=$(kubectl -n kafka get service kafka-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
     local STRUCTURIZR_IP=$(kubectl -n structurizr get service structurizr -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
 
-    log "INFO" "----------------------------------------"
-    log "INFO" "Access Services via their LoadBalancer IPs:"
+    log "INFO" "========================================="
+    log "INFO" "=== DEPLOYMENT COMPLETED SUCCESSFULLY ==="
+    log "INFO" "========================================="
+    log "INFO" ""
+    log "INFO" "=== External Services (LoadBalancer) ==="
     log "INFO" "- Kafka UI: http://${KAFKA_UI_IP:-<pending>}"
     log "INFO" "- Structurizr: http://${STRUCTURIZR_IP:-<pending>}"
     log "INFO" ""
-    log "INFO" "Note: If IPs show as <pending>, run the following commands to check status:"
-    log "INFO" "kubectl -n kafka get service kafka-ui"
-    log "INFO" "kubectl -n structurizr get service structurizr"
+    log "INFO" "=== Infrastructure Services ==="
+    log "INFO" "Check infrastructure services with:"
+    log "INFO" "  kubectl get svc -n risingwave"
+    log "INFO" "  kubectl get svc -n mlflow"
+    log "INFO" "  kubectl get svc -n grafana"
     log "INFO" ""
-    log "INFO" "Internal services (not accessible externally):"
-    log "INFO" "- Trades Service: only accessible within the cluster"
-    log "INFO" "- Candles Service: only accessible within the cluster"
-    log "INFO" "- Technical Indicators Service: only accessible within the cluster"
-    log "INFO" "----------------------------------------"
+    log "INFO" "=== Internal Services (Cluster-only) ==="
+    log "INFO" "- Trades Service: accessible within cluster"
+    log "INFO" "- Candles Service: accessible within cluster"
+    log "INFO" "- Technical Indicators Service: accessible within cluster"
+    log "INFO" ""
+    log "INFO" "=== Troubleshooting ==="
+    log "INFO" "If LoadBalancer IPs show as <pending>:"
+    log "INFO" "  kubectl -n kafka get service kafka-ui"
+    log "INFO" "  kubectl -n structurizr get service structurizr"
+    log "INFO" "  kubectl get svc -A | grep LoadBalancer"
+    log "INFO" ""
+    log "INFO" "View all resources:"
+    log "INFO" "  kubectl get all --all-namespaces"
+    log "INFO" "========================================="
 
     # Check if all pods are running
     log "INFO" "Checking pod status:"
@@ -284,26 +312,52 @@ display_service_info() {
 
 # Main function that orchestrates the entire deployment process
 main() {
+    log "INFO" "=== Starting deployment process ==="
+    
+    # Check DO token exists (optional for this script)
+    if [ -z "${DO_TOKEN:-}" ]; then
+        log "WARN" "DigitalOcean API token not set - some features may be limited"
+        log "INFO" "Set DO_TOKEN environment variable if needed for cluster management"
+    fi
+    
     # Create namespaces
     create_namespaces
     
-    # Deploy Strimzi Kafka operator
+    # Deploy Strimzi Kafka operator and wait for CRDs
     deploy_strimzi
     
-    # Deploy Kafka and Kafka UI
+    # Deploy Kafka cluster and UI
     deploy_kafka
-    
-    # Create kustomization overlays for services
-    create_kustomization_overlays
     
     # Wait for Kafka bootstrap service
     wait_for_kafka_bootstrap
     
-    # Deploy services
+    # Deploy infrastructure components (RisingWave, MLflow, Grafana)
+    log "INFO" "=== Deploying infrastructure components ==="
+    if [ -f "./deploy_infrastructure.sh" ]; then
+        log "INFO" "Running infrastructure deployment script..."
+        if bash ./deploy_infrastructure.sh; then
+            log "SUCCESS" "Infrastructure deployment completed successfully"
+        else
+            log "ERROR" "Infrastructure deployment failed"
+            log "ERROR" "Please check the logs above for details"
+            exit 1
+        fi
+    else
+        log "WARN" "Infrastructure deployment script not found at ./deploy_infrastructure.sh"
+        log "WARN" "Please run it manually after this script completes"
+    fi
+    
+    # Create kustomization overlays for services
+    create_kustomization_overlays
+    
+    # Deploy services using kustomize
     deploy_services
     
     # Display service access information
     display_service_info
+    
+    log "INFO" "=== Deployment completed successfully ==="
 }
 
 # Execute main function

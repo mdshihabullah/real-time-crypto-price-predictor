@@ -14,12 +14,7 @@ from trades.kraken_websocket_api import KrakenWebSocketAPI
 from trades.trade import Trade
 
 
-def custom_ts_extractor(
-    value: Any,
-    headers: Optional[List[Tuple[str, bytes]]],
-    timestamp: float,
-    timestamp_type: TimestampType,
-) -> int:
+def custom_ts_extractor(value: Any) -> int:
     """
     Specifying a custom timestamp extractor to use the timestamp from the message payload
     instead of Kafka timestamp.
@@ -40,9 +35,8 @@ def setup_kafka(
         value_serializer="json",
         timestamp_extractor=custom_ts_extractor,
         config=TopicConfig(
-            replication_factor=1,
-            num_partitions=len(config.product_ids)
-        )
+            replication_factor=1, num_partitions=len(config.product_ids)
+        ),
     )
 
     return app, topic

@@ -74,10 +74,10 @@ echo "Applying Grafana dashboards..."
 chmod +x ./apply-grafana-dashboards.sh
 ./apply-grafana-dashboards.sh
 
-#11. Install Metabase
-echo "Installing Metabase..."
-chmod +x ./install_metabase.sh
-./install_metabase.sh
+# #11. Install Metabase
+# echo "Installing Metabase..."
+# chmod +x ./install_metabase.sh
+# ./install_metabase.sh
 
 #12. Install MLFlow
 echo "Installing MLFlow..."
