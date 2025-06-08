@@ -116,102 +116,122 @@ ghcr-push:
 ## Production Deployment (DigitalOcean Kubernetes)
 ################################################################################
 
-# Production deployment prerequisites and validation
-prod-check-prereqs:
-	@echo "🔍 Checking production deployment prerequisites..."
-	@cd $(PROD_DIR) && ./pre_deployment_check.sh
+# Production deployment without unnecessary validation
+prod-check-cluster:
+	@echo "🔍 Checking cluster connectivity..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl cluster-info >/dev/null 2>&1 || (echo "❌ Cluster not accessible. Check KUBECONFIG." && exit 1)
+	@echo "✅ Cluster is accessible"
 
-prod-validate-cluster:
-	@echo "🔍 Validating production cluster connectivity and resources..."
-	@cd $(PROD_DIR) && ./pre_deployment_check.sh
+# Infrastructure deployment
+prod-deploy-infra:
+	@echo "🏗️ Deploying infrastructure components..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "📦 Deploying Kafka..." && \
+	kubectl apply -f https://strimzi.io/install/latest?namespace=kafka && \
+	sleep 30 && \
+	kubectl apply -f manifests/kafka-and-topics.yaml && \
+	kubectl apply -f manifests/kafka-ui.yaml && \
+	echo "📊 Deploying Grafana..." && \
+	helm repo add grafana https://grafana.github.io/helm-charts --force-update && \
+	helm upgrade --install grafana grafana/grafana \
+		--namespace grafana --create-namespace \
+		--values manifests/infrastructure/grafana-values.yaml \
+		--timeout 600s --wait && \
+	kubectl apply -f manifests/infrastructure/grafana-dashboards.yaml && \
+	echo "✅ Infrastructure deployment complete"
 
-# Modular production deployment with parameters
-prod-deploy: prod-check-prereqs
-	@if [ "$(infra)" = "risingwave" ]; then \
-		echo "🏗️ Deploying RisingWave infrastructure..."; \
-		cd $(PROD_DIR) && $(MAKE) deploy-infrastructure; \
-	elif [ "$(infra)" = "mlflow" ]; then \
-		echo "🏗️ Deploying MLflow infrastructure..."; \
-		cd $(PROD_DIR) && helm upgrade --install mlflow oci://registry-1.docker.io/bitnamicharts/mlflow \
-			--namespace mlflow --create-namespace \
-			--values manifests/infrastructure/mlflow-values.yaml \
-			--timeout 600s --wait; \
-	elif [ "$(infra)" = "grafana" ]; then \
-		echo "🏗️ Deploying Grafana infrastructure..."; \
-		cd $(PROD_DIR) && $(MAKE) generate-dashboards && \
-		helm upgrade --install grafana grafana/grafana \
-			--namespace grafana --create-namespace \
-			--values manifests/infrastructure/grafana-values.yaml \
-			--timeout 600s --wait && \
-		kubectl apply -f manifests/infrastructure/grafana-dashboards.yaml; \
-	elif [ "$(infra)" = "all" ]; then \
-		echo "🏗️ Deploying all infrastructure components..."; \
-		cd $(PROD_DIR) && $(MAKE) deploy-infrastructure; \
+# Service deployment
+prod-deploy-services: prod-check-cluster
+	@echo "🔧 Deploying all services..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "🚀 Deploying trades service..." && \
+	kubectl apply -k manifests/services/trades/ && \
+	echo "🕯️ Deploying candles service..." && \
+	source deployment.config && \
+	export CANDLES_IMAGE && \
+	envsubst < manifests/services/candles/candles.yaml | kubectl apply -f - && \
+	echo "📈 Deploying technical-indicators service..." && \
+	kubectl apply -k manifests/services/technical_indicators/ && \
+	echo "✅ All services deployed"
+
+# Individual service deployments
+prod-deploy-trades: prod-check-cluster
+	@echo "🚀 Deploying trades service..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl apply -k manifests/services/trades/
+
+prod-deploy-candles: prod-check-cluster
+	@echo "🕯️ Deploying candles service..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export CANDLES_IMAGE && \
+	envsubst < manifests/services/candles/candles.yaml | kubectl apply -f -
+
+prod-deploy-technical-indicators: prod-check-cluster
+	@echo "📈 Deploying technical-indicators service..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl apply -k manifests/services/technical_indicators/
+
+# Main deployment command - now much simpler
+prod-deploy:
+	@if [ "$(infra)" = "true" ] || [ "$(infra)" = "all" ]; then \
+		$(MAKE) prod-deploy-infra; \
+	elif [ "$(services)" = "true" ] || [ "$(services)" = "all" ]; then \
+		$(MAKE) prod-deploy-services; \
 	elif [ "$(service)" = "trades" ]; then \
-		echo "🔧 Deploying trades service..."; \
-		cd $(PROD_DIR) && kubectl apply -k manifests/services/trades/; \
+		$(MAKE) prod-deploy-trades; \
 	elif [ "$(service)" = "candles" ]; then \
-		echo "🔧 Deploying candles service..."; \
-		cd $(PROD_DIR) && \
-		export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
-		source deployment.config && \
-		export CANDLES_IMAGE && \
-		envsubst < manifests/services/candles/candles.yaml | kubectl apply -f -; \
+		$(MAKE) prod-deploy-candles; \
 	elif [ "$(service)" = "technical-indicators" ]; then \
-		echo "🔧 Deploying technical-indicators service..."; \
-		cd $(PROD_DIR) && kubectl apply -k manifests/services/technical_indicators/; \
-	elif [ "$(service)" = "structurizr" ]; then \
-		echo "🔧 Deploying structurizr service..."; \
-		cd $(PROD_DIR) && envsubst < manifests/structurizr/structurizr.yaml | kubectl apply -f -; \
-	elif [ "$(service)" = "kafka" ]; then \
-		echo "🔧 Deploying Kafka services..."; \
-		cd $(PROD_DIR) && kubectl apply -f https://strimzi.io/install/latest?namespace=kafka && \
-		sleep 30 && kubectl apply -f manifests/kafka-and-topics.yaml && kubectl apply -f manifests/kafka-ui.yaml; \
-	elif [ "$(service)" = "all" ]; then \
-		echo "🔧 Deploying all application services..."; \
-		cd $(PROD_DIR) && $(MAKE) deploy-services; \
+		$(MAKE) prod-deploy-technical-indicators; \
 	else \
-		echo "🚀 Starting full production deployment..."; \
-		cd $(PROD_DIR) && $(MAKE) create-cluster; \
+		$(MAKE) prod-deploy-services; \
 	fi
 
 # Production deployment utilities
-prod-generate-dashboards:
-	@echo "📊 Generating Grafana dashboards..."
-	@cd $(PROD_DIR) && $(MAKE) generate-dashboards
-
 prod-get-endpoints:
 	@echo "🌐 Getting production service endpoints..."
-	@cd $(PROD_DIR) && $(MAKE) get-endpoints
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl get services -A
 
 prod-status:
 	@echo "📋 Getting production deployment status..."
-	@cd $(PROD_DIR) && $(MAKE) status
-
-prod-health:
-	@echo "🩺 Performing production health check..."
-	@cd $(PROD_DIR) && $(MAKE) health
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl get pods -n services && \
+	kubectl get deployments -n services
 
 prod-logs:
 	@echo "📄 Getting production service logs..."
-	@cd $(PROD_DIR) && $(MAKE) logs
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "=== Trades Service Logs ===" && \
+	kubectl logs -n services -l app.kubernetes.io/name=trades --tail=20 && \
+	echo "=== Candles Service Logs ===" && \
+	kubectl logs -n services -l app=candles --tail=20 && \
+	echo "=== Technical Indicators Service Logs ===" && \
+	kubectl logs -n services -l app.kubernetes.io/name=technical-indicators --tail=20
 
-prod-validate-deployment:
-	@echo "✅ Validating production deployment..."
-	@cd $(PROD_DIR) && $(MAKE) validate-deployment
+prod-restart:
+	@echo "🔄 Restarting all services..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl rollout restart deployment -n services
 
 # Production maintenance commands
 prod-cleanup:
 	@echo "🧹 Cleaning up production deployment..."
-	@cd $(PROD_DIR) && $(MAKE) cleanup
-
-prod-reset:
-	@echo "🔄 Resetting production deployment..."
-	@cd $(PROD_DIR) && $(MAKE) reset
-
-prod-clean:
-	@echo "🗑️ Cleaning temporary files..."
-	@cd $(PROD_DIR) && $(MAKE) clean
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl delete namespace services --ignore-not-found=true
 
 ################################################################################
 ## Help and Information
@@ -234,32 +254,30 @@ help:
 	@echo "  ghcr-push service=<name>     Build and push production image"
 	@echo ""
 	@echo "☁️ Production Deployment (DigitalOcean):"
-	@echo "  prod-check-prereqs          Verify deployment prerequisites"
-	@echo "  prod-validate-cluster       Validate cluster connectivity"
-	@echo "  prod-deploy                 Full production deployment"
-	@echo "  prod-deploy infra=<name>    Deploy specific infrastructure (risingwave|mlflow|grafana|all)"
-	@echo "  prod-deploy service=<name>  Deploy specific service (trades|candles|technical-indicators|structurizr|kafka|all)"
+	@echo "  prod-check-cluster          Check cluster connectivity"
+	@echo "  prod-deploy                 Deploy all services (default)"
+	@echo "  prod-deploy infra=true      Deploy only infrastructure"
+	@echo "  prod-deploy services=true   Deploy only services"
+	@echo "  prod-deploy service=trades  Deploy only trades service"
+	@echo "  prod-deploy service=candles Deploy only candles service"
+	@echo "  prod-deploy service=technical-indicators Deploy only technical-indicators service"
 	@echo ""
 	@echo "🔧 Production Utilities:"
-	@echo "  prod-generate-dashboards    Generate Grafana dashboards"
 	@echo "  prod-get-endpoints          Get service endpoints"
 	@echo "  prod-status                 Show deployment status"
-	@echo "  prod-health                 Quick health check"
 	@echo "  prod-logs                   View service logs"
-	@echo "  prod-validate-deployment    Validate deployment health"
+	@echo "  prod-restart                Restart all services"
 	@echo ""
 	@echo "🧹 Production Maintenance:"
 	@echo "  prod-cleanup                Remove production deployment"
-	@echo "  prod-reset                  Full reset (cleanup + redeploy)"
-	@echo "  prod-clean                  Clean temporary files"
 	@echo ""
 	@echo "💡 Examples:"
 	@echo "  make dev service=trades               # Run trades service locally"
 	@echo "  make deploy-for-dev service=candles   # Deploy candles to Kind"
 	@echo "  make ghcr-push service=trades         # Push trades image to registry"
-	@echo "  make prod-deploy                      # Full production deployment"
-	@echo "  make prod-deploy infra=risingwave     # Deploy only RisingWave"
-	@echo "  make prod-deploy service=trades       # Deploy only trades service"
+	@echo "  make prod-deploy                      # Deploy all services"
+	@echo "  make prod-deploy infra=true           # Deploy only infrastructure"
+	@echo "  make prod-deploy service=candles      # Deploy only candles service"
 	@echo "  make prod-get-endpoints               # Get production service URLs"
 	@echo ""
 	@echo "📚 For detailed production deployment guide:"

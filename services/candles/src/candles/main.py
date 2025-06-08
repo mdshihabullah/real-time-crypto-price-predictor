@@ -1,7 +1,6 @@
 """Main module for the candles service"""
 
 from datetime import timedelta
-from typing import Any
 
 from loguru import logger
 from quixstreams import Application
@@ -10,7 +9,8 @@ from quixstreams.models import TopicConfig
 from candles.config import config
 
 
-def custom_ts_extractor(value: Any) -> int:
+def custom_ts_extractor(value, headers, timestamp,timestamp_type):
+
     """
     Specifying a custom timestamp extractor to use the timestamp from the message payload 
     instead of Kafka timestamp.
