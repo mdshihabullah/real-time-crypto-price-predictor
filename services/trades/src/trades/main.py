@@ -2,11 +2,11 @@
 
 import sys
 import time
-from typing import Any, List, Optional, Tuple
+from typing import List
 
 from loguru import logger
 from quixstreams import Application
-from quixstreams.models import TimestampType, TopicConfig
+from quixstreams.models import TopicConfig
 
 from trades.config import config
 from trades.kraken_rest_api import KrakenRESTAPI
@@ -14,7 +14,7 @@ from trades.kraken_websocket_api import KrakenWebSocketAPI
 from trades.trade import Trade
 
 
-def custom_ts_extractor(value: Any) -> int:
+def custom_ts_extractor(value, headers, timestamp, timestamp_type):
     """
     Specifying a custom timestamp extractor to use the timestamp from the message payload
     instead of Kafka timestamp.
@@ -95,7 +95,8 @@ def _process_historical_data_streaming(
             return
 
         logger.info(
-            f"Successfully backfilled and streamed {len(events)} trades for {config.last_n_days} days to Kafka"
+            f"Successfully backfilled and streamed {len(events)} trades for "
+            f"{config.last_n_days} days to Kafka"
         )
         logger.info("All historical trades have been published to Kafka progressively")
 

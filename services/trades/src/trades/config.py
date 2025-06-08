@@ -11,8 +11,6 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ENV_FILE_NAME
 # Product IDs to fetch from Kraken
 PRODUCT_IDS = ["BTC/EUR", "ETH/EUR", "SOL/EUR", "XRP/EUR"]
 
-# Enable progressive streaming for historical backfill (industry best practice)
-ENABLE_PROGRESSIVE_STREAMING = True
 
 class Settings(BaseSettings):
     """Config settings for the trades service"""
@@ -24,7 +22,7 @@ class Settings(BaseSettings):
     kafka_topic: str
     kraken_api_mode: Literal["REST", "WS"]
     last_n_days: int
-    enable_progressive_streaming: bool = ENABLE_PROGRESSIVE_STREAMING
+    enable_progressive_streaming: bool
 
 config = Settings()
 
