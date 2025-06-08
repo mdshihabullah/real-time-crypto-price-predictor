@@ -2453,7 +2453,7 @@ requires-dist = [
     { name = "optuna", specifier = ">=4.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "risingwave-py", specifier = ">=0.0.1" },
+    { name = "risingwave-py", git = "https://github.com/risingwavelabs/risingwave-py" },
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "ydata-profiling", specifier = ">=4.6.3" },
 ]
@@ -2506,26 +2506,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/a2/709e0fe2f093556c17fbafda93ac032257242cabcc7ff3369e2cb76a97aa/psutil-7.0.0-cp36-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a5f098451abc2828f7dc6b58d44b532b22f2088f4999a937557b603ce72b1993", size = 279544 },
     { url = "https://files.pythonhosted.org/packages/50/e6/eecf58810b9d12e6427369784efe814a1eec0f492084ce8eb8f4d89d6d61/psutil-7.0.0-cp37-abi3-win32.whl", hash = "sha256:ba3fcef7523064a6c9da440fc4d6bd07da93ac726b5733c29027d7dc95b39d99", size = 241053 },
     { url = "https://files.pythonhosted.org/packages/50/1b/6921afe68c74868b4c9fa424dad3be35b095e16687989ebbb50ce4fceb7c/psutil-7.0.0-cp37-abi3-win_amd64.whl", hash = "sha256:4cf3d4eb1aa9b348dec30105c55cd9b7d4629285735a102beb4441e38db90553", size = 244885 },
-]
-
-[[package]]
-name = "psycopg2-binary"
-version = "2.9.9"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fc/07/e720e53bfab016ebcc34241695ccc06a9e3d91ba19b40ca81317afbdc440/psycopg2-binary-2.9.9.tar.gz", hash = "sha256:7f01846810177d829c7692f1f5ada8096762d9172af1b1a28d4ab5b77c923c1c", size = 384973 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/d0/5f2db14e7b53552276ab613399a83f83f85b173a862d3f20580bc7231139/psycopg2_binary-2.9.9-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:8532fd6e6e2dc57bcb3bc90b079c60de896d2128c5d9d6f24a63875a95a088cf", size = 2823784 },
-    { url = "https://files.pythonhosted.org/packages/18/ca/da384fd47233e300e3e485c90e7aab5d7def896d1281239f75901faf87d4/psycopg2_binary-2.9.9-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b0605eaed3eb239e87df0d5e3c6489daae3f7388d455d0c0b4df899519c6a38d", size = 2553308 },
-    { url = "https://files.pythonhosted.org/packages/50/66/fa53d2d3d92f6e1ef469d92afc6a4fe3f6e8a9a04b687aa28fb1f1d954ee/psycopg2_binary-2.9.9-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8f8544b092a29a6ddd72f3556a9fcf249ec412e10ad28be6a0c0d948924f2212", size = 2851283 },
-    { url = "https://files.pythonhosted.org/packages/04/37/2429360ac5547378202db14eec0dde76edbe1f6627df5a43c7e164922859/psycopg2_binary-2.9.9-cp312-cp312-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:2d423c8d8a3c82d08fe8af900ad5b613ce3632a1249fd6a223941d0735fce493", size = 3081839 },
-    { url = "https://files.pythonhosted.org/packages/62/2a/c0530b59d7e0d09824bc2102ecdcec0456b8ca4d47c0caa82e86fce3ed4c/psycopg2_binary-2.9.9-cp312-cp312-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:2e5afae772c00980525f6d6ecf7cbca55676296b580c0e6abb407f15f3706996", size = 3264488 },
-    { url = "https://files.pythonhosted.org/packages/19/57/9f172b900795ea37246c78b5f52e00f4779984370855b3e161600156906d/psycopg2_binary-2.9.9-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6e6f98446430fdf41bd36d4faa6cb409f5140c1c2cf58ce0bbdaf16af7d3f119", size = 3020700 },
-    { url = "https://files.pythonhosted.org/packages/94/68/1176fc14ea76861b7b8360be5176e87fb20d5091b137c76570eb4e237324/psycopg2_binary-2.9.9-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:c77e3d1862452565875eb31bdb45ac62502feabbd53429fdc39a1cc341d681ba", size = 2355968 },
-    { url = "https://files.pythonhosted.org/packages/70/bb/aec2646a705a09079d008ce88073401cd61fc9b04f92af3eb282caa3a2ec/psycopg2_binary-2.9.9-cp312-cp312-musllinux_1_1_i686.whl", hash = "sha256:cb16c65dcb648d0a43a2521f2f0a2300f40639f6f8c1ecbc662141e4e3e1ee07", size = 2536101 },
-    { url = "https://files.pythonhosted.org/packages/14/33/12818c157e333cb9d9e6753d1b2463b6f60dbc1fade115f8e4dc5c52cac4/psycopg2_binary-2.9.9-cp312-cp312-musllinux_1_1_ppc64le.whl", hash = "sha256:911dda9c487075abd54e644ccdf5e5c16773470a6a5d3826fda76699410066fb", size = 2487064 },
-    { url = "https://files.pythonhosted.org/packages/56/a2/7851c68fe8768f3c9c246198b6356ee3e4a8a7f6820cc798443faada3400/psycopg2_binary-2.9.9-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:57fede879f08d23c85140a360c6a77709113efd1c993923c59fde17aa27599fe", size = 2456257 },
-    { url = "https://files.pythonhosted.org/packages/6f/ee/3ba07c6dc7c3294e717e94720da1597aedc82a10b1b180203ce183d4631a/psycopg2_binary-2.9.9-cp312-cp312-win32.whl", hash = "sha256:64cf30263844fa208851ebb13b0732ce674d8ec6a0c86a4e160495d299ba3c93", size = 1024709 },
-    { url = "https://files.pythonhosted.org/packages/7b/08/9c66c269b0d417a0af9fb969535f0371b8c538633535a7a6a5ca3f9231e2/psycopg2_binary-2.9.9-cp312-cp312-win_amd64.whl", hash = "sha256:81ff62668af011f9a48787564ab7eded4e9fb17a4a6a74af5ffa6a457400d2ab", size = 1163864 },
 ]
 
 [[package]]
@@ -3026,16 +3006,11 @@ wheels = [
 [[package]]
 name = "risingwave-py"
 version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/risingwavelabs/risingwave-py#833ca13041cb73cd96fa5cb1c898db2a558d5d8c" }
 dependencies = [
     { name = "pandas" },
-    { name = "psycopg2-binary" },
     { name = "semver" },
     { name = "sqlalchemy-risingwave" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/34/1d/f504f5801ce9377966d85ed83211b513eb06ce534de08b56cbdedfcc619f/risingwave_py-0.0.1.tar.gz", hash = "sha256:6c01cf78bf7f0283c1b73176f1afe624e1131a23e90940dd5371378b137d0f96", size = 13525 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/46/7ae4894cddab522da4ba549ddd3897512386831e89983b923ae3b3f0553b/risingwave_py-0.0.1-py3-none-any.whl", hash = "sha256:776852c8fc4a554fb581c1cc49fd5cd5fd7a89f4999c8072334b65caa18116d3", size = 12265 },
 ]
 
 [[package]]
@@ -3343,14 +3318,14 @@ wheels = [
 
 [[package]]
 name = "sqlalchemy-risingwave"
-version = "1.1.0"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/89/0efd833429e3f99b95e544f4501d60a2d42d08710cd6cdefcc09d38d2eea/sqlalchemy-risingwave-1.1.0.tar.gz", hash = "sha256:72f34b0c46a70bfb8ad28b690b92bdf03b6fb025662c5b5da94a8b2220357454", size = 12161 }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/d3/b9234be8f7d079334a12d5613c1d2c3ceaac2bd531e4d670c107b4189fcc/sqlalchemy_risingwave-1.1.1.tar.gz", hash = "sha256:784de7f87deb39a4a7d792858591efa82aab6f6936f665d029b4b8c5c53ea1e7", size = 12249 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/3b/24c4418c5f9b620f6ca2f05328e4acb6cc54182d3c32d5db6cc38d8e8ca4/sqlalchemy_risingwave-1.1.0-py3-none-any.whl", hash = "sha256:6159a6d4eb2e6cdeed7f5106818f3c98573c57ef0b66836fb5eb7bc3f95d8d68", size = 11472 },
+    { url = "https://files.pythonhosted.org/packages/e6/39/8d386474f2e6305777a9c7b82da4bba8157872fc6c3094a816e2fdaa126d/sqlalchemy_risingwave-1.1.1-py3-none-any.whl", hash = "sha256:6422cd670c4916a107f9f64c155e0a38a8674d862594c8ef212722582cacf58b", size = 11450 },
 ]
 
 [[package]]

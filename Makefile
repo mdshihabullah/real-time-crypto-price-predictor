@@ -226,6 +226,49 @@ prod-restart:
 	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
 	kubectl rollout restart deployment -n services
 
+# Production service access
+prod-access:
+	@echo "🌐 Production Service Access URLs"
+	@echo "=================================="
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "" && \
+	echo "📊 Direct Browser Access (LoadBalancer IPs):" && \
+	echo "  Kafka UI:    http://$$(kubectl get svc kafka-ui -n kafka -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" && \
+	echo "  Grafana:     http://$$(kubectl get svc grafana -n grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" && \
+	echo "  MLflow:      http://$$(kubectl get svc mlflow-tracking -n mlflow -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" && \
+	echo "  Structurizr: http://$$(kubectl get svc structurizr -n structurizr -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" && \
+	echo "" && \
+	echo "🔑 Grafana Login Credentials:" && \
+	echo "  Username: admin" && \
+	echo "  Password: $$(kubectl get secret --namespace grafana grafana -o jsonpath='{.data.admin-password}' | base64 --decode)" && \
+	echo "" && \
+	echo "💡 All services are accessible directly via LoadBalancer IPs - no port-forwarding needed!"
+
+prod-port-forward-kafka:
+	@echo "🔗 Starting Kafka UI port-forward on localhost:8080..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl port-forward -n kafka svc/kafka-ui 8080:80
+
+prod-port-forward-grafana:
+	@echo "🔗 Starting Grafana port-forward on localhost:3000..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl port-forward -n grafana svc/grafana 3000:80
+
+prod-port-forward-mlflow:
+	@echo "🔗 Starting MLflow port-forward on localhost:5000..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl port-forward -n mlflow svc/mlflow-tracking 5000:80
+
+prod-port-forward-structurizr:
+	@echo "🔗 Starting Structurizr port-forward on localhost:8081..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl port-forward -n structurizr svc/structurizr 8081:80
+
 # Production maintenance commands
 prod-cleanup:
 	@echo "🧹 Cleaning up production deployment..."
@@ -267,6 +310,13 @@ help:
 	@echo "  prod-status                 Show deployment status"
 	@echo "  prod-logs                   View service logs"
 	@echo "  prod-restart                Restart all services"
+	@echo "  prod-access                 Show service access URLs and credentials"
+	@echo ""
+	@echo "🌐 Production Service Access:"
+	@echo "  prod-port-forward-kafka     Port-forward Kafka UI to localhost:8080"
+	@echo "  prod-port-forward-grafana   Port-forward Grafana to localhost:3000"
+	@echo "  prod-port-forward-mlflow    Port-forward MLflow to localhost:5000"
+	@echo "  prod-port-forward-structurizr Port-forward Structurizr to localhost:8081"
 	@echo ""
 	@echo "🧹 Production Maintenance:"
 	@echo "  prod-cleanup                Remove production deployment"

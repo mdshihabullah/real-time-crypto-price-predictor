@@ -183,6 +183,181 @@ class KrakenRESTAPI:
             logger.error(f"Error transforming trade data: {e}, data: {trade_data}")
             return None
 
+    def get_trades_streaming(self, callback=None) -> List[Trade]:
+        """
+        Stream trades for configured product IDs within the last N days,
+        calling callback for each batch of trades as they are fetched.
+        
+        This implements the progressive backfill pattern where trades are
+        processed and published to Kafka immediately rather than collecting
+        all trades in memory first.
+
+        Args:
+            callback: Function to call for each batch of trades. 
+                     Signature: callback(trades: List[Trade]) -> None
+
+        Returns:
+            List of Trade objects (for compatibility, but consider using callback)
+        """
+        all_trades = []
+        earliest_timestamp = self._get_timestamp_for_days_ago(self.last_n_days)
+
+        logger.info(
+            f"Starting to stream trades since {datetime.fromtimestamp(earliest_timestamp).isoformat()}"
+        )
+        logger.info("Using progressive streaming pattern - trades will be published as fetched")
+
+        # Process each product ID
+        for product_id in self.product_ids:
+            logger.info(
+                f"Streaming trades for {product_id} from the last {self.last_n_days} days"
+            )
+
+            # Store the raw timestamps for this product separately
+            product_timestamps = []
+            total_product_trades = 0
+
+            request_count = 0
+            consecutive_empty_pages = 0
+
+            # Convert timestamp to nanoseconds for the API
+            current_since = self._convert_to_nanoseconds(earliest_timestamp)
+
+            # Fetch all trades from earliest_timestamp to now
+            # The API returns at most 1000 trades per request, so we need multiple requests
+            # to get all trades within our time range
+            now_timestamp = datetime.now().timestamp()
+
+            while True:
+                request_count += 1
+                logger.info(
+                    f"Fetching request #{request_count} for {product_id} since {current_since}"
+                )
+
+                trades_data, last_id = self._fetch_trades_page(
+                    product_id, current_since
+                )
+
+                if not trades_data:
+                    consecutive_empty_pages += 1
+                    logger.warning(
+                        f"No trades data received for {product_id} on request #{request_count}"
+                    )
+
+                    # If we get too many empty responses in a row, something is wrong
+                    if consecutive_empty_pages >= 3:
+                        logger.error(
+                            f"Giving up after {consecutive_empty_pages} consecutive empty responses for {product_id}"
+                        )
+                        break
+
+                    # Try again after a slightly longer delay
+                    time.sleep(5)
+                    continue
+
+                consecutive_empty_pages = 0  # Reset counter on success
+
+                # Process trades from this batch and stream them immediately
+                batch_trades = []
+                latest_trade_time = 0
+
+                for i, trade in enumerate(trades_data):
+                    try:
+                        trade_time = float(trade[2])
+                        latest_trade_time = max(latest_trade_time, trade_time)
+
+                        # Only include trades within our time range
+                        # (the API might return trades earlier than our specified since)
+                        if trade_time >= earliest_timestamp:
+                            # Generate a unique ID for this trade to lookup timestamp later
+                            trade_id = f"{product_id}_{request_count}_{i}"
+
+                            trade_obj = self._transform_trade(
+                                trade, product_id, trade_id
+                            )
+                            if trade_obj:
+                                batch_trades.append(trade_obj)
+                                product_timestamps.append(trade_time)
+                    except Exception as e:
+                        logger.error(f"Error processing trade: {e}")
+                        continue
+
+                # Stream this batch immediately if we have trades
+                if batch_trades:
+                    logger.info(
+                        f"Streaming {len(batch_trades)} trades for {product_id} from request #{request_count}"
+                    )
+                    
+                    # Call the callback to stream trades immediately
+                    if callback:
+                        try:
+                            callback(batch_trades)
+                        except Exception as e:
+                            logger.error(f"Error in callback for {product_id}: {e}")
+                    
+                    # Also add to return list for compatibility
+                    all_trades.extend(batch_trades)
+                    total_product_trades += len(batch_trades)
+
+                # Determine if we've reached the current time
+                if (
+                    latest_trade_time > 0 and latest_trade_time >= now_timestamp - 60
+                ):  # Within a minute of now
+                    logger.info(f"Reached current time for {product_id}")
+                    break
+
+                # Stop if no more data
+                if not last_id:
+                    logger.info(f"No more data available for {product_id}")
+                    break
+
+                # Check if we're making progress with "since"
+                if current_since == last_id:
+                    logger.warning(
+                        f"Pagination not progressing for {product_id}, last_id unchanged: {last_id}"
+                    )
+                    break
+
+                # Update for next request - use the last_id (which is the timestamp in nanoseconds of the last trade)
+                current_since = last_id
+
+                # Rate limiting with a dynamic backoff strategy
+                if request_count % 10 == 0:
+                    sleep_time = 2  # Take a slightly longer break every 10 requests
+                else:
+                    sleep_time = 1
+
+                logger.debug(f"Sleeping for {sleep_time}s before next request")
+                time.sleep(sleep_time)
+
+                # Show streaming progress
+                if product_timestamps:
+                    earliest_collected = min(product_timestamps)
+                    latest_collected = max(product_timestamps)
+
+                    days_covered = (latest_collected - earliest_collected) / (
+                        24 * 60 * 60
+                    )
+                    coverage_percent = min(100, (days_covered / self.last_n_days) * 100)
+
+                    progress_msg = f"Streaming {product_id}: {total_product_trades} trades, {days_covered:.1f} days ({coverage_percent:.1f}% of target)"
+                    sys.stdout.write(f"\r{progress_msg}...")
+                    sys.stdout.flush()
+
+            logger.info(f"Completed streaming {total_product_trades} trades for {product_id}")
+
+            # Reset stdout
+            sys.stdout.write("\r" + " " * 80 + "\r")
+            sys.stdout.flush()
+
+        # Clear the timestamp dictionary to free memory
+        self.trade_timestamps.clear()
+
+        logger.info(
+            f"Completed streaming a total of {len(all_trades)} trades across all products"
+        )
+        return all_trades
+
     def get_trades(self) -> List[Trade]:
         """
         Get all trades for configured product IDs within the last N days

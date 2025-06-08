@@ -54,9 +54,60 @@ def publish_trade(producer, topic: TopicConfig, event: Trade) -> None:
 def process_historical_data(
     producer, topic: TopicConfig, kraken_api: KrakenRESTAPI
 ) -> None:
-    """Process historical data from REST API"""
+    """Process historical data from REST API using progressive streaming or traditional batch"""
     logger.info(f"Fetching trade data for the last {config.last_n_days} days")
+    
+    if config.enable_progressive_streaming:
+        logger.info("Using progressive streaming - trades will be published to Kafka as fetched")
+        _process_historical_data_streaming(producer, topic, kraken_api)
+    else:
+        logger.info("Using traditional batch processing - all trades collected before publishing")
+        _process_historical_data_batch(producer, topic, kraken_api)
 
+
+def _process_historical_data_streaming(
+    producer, topic: TopicConfig, kraken_api: KrakenRESTAPI
+) -> None:
+    """Process historical data using progressive streaming (recommended)"""
+    try:
+        # Define callback function to publish trades as they are fetched
+        def publish_batch_to_kafka(trades: List[Trade]) -> None:
+            """Callback to publish a batch of trades to Kafka immediately"""
+            for trade in trades:
+                publish_trade(producer, topic, trade)
+            logger.info(f"Published {len(trades)} trades to Kafka topic '{topic.name}'")
+
+        # Show progress indication
+        sys.stdout.write("Streaming trades data to Kafka as fetched...\n")
+        sys.stdout.flush()
+
+        # Stream trades with progressive publishing to Kafka
+        start_time = time.time()
+        events: list[Trade] = kraken_api.get_trades_streaming(callback=publish_batch_to_kafka)
+        elapsed = time.time() - start_time
+
+        logger.info(f"Streamed and published {len(events)} trades in {elapsed:.2f} seconds")
+
+        if not events:
+            logger.warning(
+                "No trades were found. Check the time range and product IDs."
+            )
+            return
+
+        logger.info(
+            f"Successfully backfilled and streamed {len(events)} trades for {config.last_n_days} days to Kafka"
+        )
+        logger.info("All historical trades have been published to Kafka progressively")
+
+    except Exception as e:
+        logger.error(f"Error in streaming REST API mode: {e}")
+        raise
+
+
+def _process_historical_data_batch(
+    producer, topic: TopicConfig, kraken_api: KrakenRESTAPI
+) -> None:
+    """Process historical data using traditional batch method (legacy)"""
     try:
         # Show progress indication
         sys.stdout.write("Fetching trades data, this may take some time...\n")
@@ -99,7 +150,7 @@ def process_historical_data(
         )
 
     except Exception as e:
-        logger.error(f"Error in REST API mode: {e}")
+        logger.error(f"Error in batch REST API mode: {e}")
         raise
 
 
