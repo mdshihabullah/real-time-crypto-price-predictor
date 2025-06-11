@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: predictor-training
+  namespace: services
+  labels:
+    app.kubernetes.io/name: predictor-training
+    app.kubernetes.io/component: ml-training
+    app.kubernetes.io/part-of: crypto-predictor-system
+spec:
+  # Run every 3 hours
+  schedule: "0 */3 * * *"
+  
+  # Prevent concurrent jobs to avoid resource conflicts
+  concurrencyPolicy: Forbid
+  
+  # Keep last 3 successful and 1 failed job for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  
+  # Start deadline - if job doesn't start within 10 minutes, skip it
+  startingDeadlineSeconds: 600
+  
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: predictor-training
+        app.kubernetes.io/component: ml-training
+    spec:
+      # Job timeout - maximum 4 hours for training
+      activeDeadlineSeconds: 14400
+      
+      # Don't retry failed jobs automatically
+      backoffLimit: 0
+      
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: predictor-training
+            app.kubernetes.io/component: ml-training
+        spec:
+          restartPolicy: Never
+          
+          # Security context
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          
+          containers:
+          - name: predictor-training
+            image: $PREDICTOR_TRAINING_IMAGE
+            imagePullPolicy: Always
+            
+            # Environment variables from configmap and secrets
+            envFrom:
+            - configMapRef:
+                name: predictor-training-config
+            - secretRef:
+                name: predictor-training-secrets
+            
+            # Resource constraints optimized for 2-node cluster
+            resources:
+              requests:
+                memory: "4Gi"
+                cpu: "300m"
+              limits:
+                memory: "6Gi"
+                cpu: "400m"
+            
+            # Volume mounts for reports and model artifacts
+            volumeMounts:
+            - name: reports-volume
+              mountPath: /app/drift_reports
+            - name: reports-volume
+              mountPath: /app/reports
+            
+            # Health checks
+            livenessProbe:
+              exec:
+                command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+              initialDelaySeconds: 30
+              periodSeconds: 60
+              timeoutSeconds: 10
+              failureThreshold: 3
+          
+          volumes:
+          - name: reports-volume
+            emptyDir:
+              sizeLimit: 1Gi
+          
+          # Node selection removed to allow flexible scheduling
+          
+          # Tolerations for any taints
+          tolerations:
+          - operator: Exists
+            effect: NoSchedule 

@@ -1,3 +1,81 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Python cache and compiled files
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+docs/
+README*
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+.tmp/
+*.tmp
+
+# Docker files (avoid recursive copies)
+Dockerfile*
+docker-compose*.yml
+
+# CI/CD files
+.github/
+
+
+# Environment files
+.env
+.env.*
+
+# Reports and outputs (will be created in container)
+drift_reports/
+reports/
+*.html
+*.json
+
+# Configuration that shouldn't be in image
+config.local.*
+secrets.* 
 **/.coverage
 **/.mypy_cache
 **/.vscode

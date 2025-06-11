@@ -1,0 +1,165 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: risingwave-post-install
+  namespace: risingwave
+  labels:
+    app.kubernetes.io/name: risingwave-post-install
+    app.kubernetes.io/part-of: crypto-predictor
+    app.kubernetes.io/component: table-initialization
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: risingwave-post-install
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: risingwave-post-install
+      containers:
+      - name: setup-tables
+        image: postgres:15
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+          
+          echo "🔍 RisingWave Post-Install Setup Starting..."
+          
+          # Wait for RisingWave to be ready
+          echo "⏳ Waiting for RisingWave to be ready..."
+          until pg_isready -h risingwave -p 4567 -U root -d dev; do
+            echo "   Waiting for RisingWave frontend..."
+            sleep 5
+          done
+          echo "✅ RisingWave is ready!"
+          
+          # Dynamically discover Kafka bootstrap server
+          echo "🔍 Discovering Kafka bootstrap server..."
+          KAFKA_BOOTSTRAP_SERVER=""
+          
+          # Try to find Kafka service in kafka namespace
+          if kubectl get svc -n kafka --no-headers 2>/dev/null | grep -q kafka-bootstrap; then
+            KAFKA_SERVICE=$(kubectl get svc -n kafka --no-headers | grep kafka-bootstrap | head -1 | awk '{print $1}')
+            KAFKA_BOOTSTRAP_SERVER="${KAFKA_SERVICE}.kafka.svc.cluster.local:9092"
+            echo "✅ Found Kafka service: $KAFKA_BOOTSTRAP_SERVER"
+          else
+            echo "❌ No Kafka service found in kafka namespace"
+            exit 1
+          fi
+          
+          # Create technical_indicators table
+          echo "📊 Creating technical_indicators table..."
+          
+          cat <<EOF | psql -h risingwave -p 4567 -d dev -U root
+          CREATE TABLE IF NOT EXISTS technical_indicators (
+              pair VARCHAR,
+              open DOUBLE PRECISION,
+              high DOUBLE PRECISION,
+              low DOUBLE PRECISION,
+              close DOUBLE PRECISION,
+              volume DOUBLE PRECISION,
+              window_start_ms BIGINT,
+              window_end_ms BIGINT,
+              window_in_sec INTEGER,
+              sma_7 DOUBLE PRECISION,
+              ema_7 DOUBLE PRECISION,
+              rsi_7 DOUBLE PRECISION,
+              adx_7 DOUBLE PRECISION,
+              macd_7 DOUBLE PRECISION,
+              macdsignal_7 DOUBLE PRECISION,
+              macdhist_7 DOUBLE PRECISION,
+              sma_14 DOUBLE PRECISION,
+              ema_14 DOUBLE PRECISION,
+              rsi_14 DOUBLE PRECISION,
+              adx_14 DOUBLE PRECISION,
+              macd_14 DOUBLE PRECISION,
+              macdsignal_14 DOUBLE PRECISION,
+              macdhist_14 DOUBLE PRECISION,
+              sma_21 DOUBLE PRECISION,
+              ema_21 DOUBLE PRECISION,
+              rsi_21 DOUBLE PRECISION,
+              adx_21 DOUBLE PRECISION,
+              macd_21 DOUBLE PRECISION,
+              macdsignal_21 DOUBLE PRECISION,
+              macdhist_21 DOUBLE PRECISION,
+              sma_60 DOUBLE PRECISION,
+              ema_60 DOUBLE PRECISION,
+              rsi_60 DOUBLE PRECISION,
+              adx_60 DOUBLE PRECISION,
+              macd_60 DOUBLE PRECISION,
+              macdsignal_60 DOUBLE PRECISION,
+              macdhist_60 DOUBLE PRECISION,
+              obv DOUBLE PRECISION,
+              created_at TIMESTAMPTZ,
+              PRIMARY KEY (pair, window_start_ms, window_end_ms)
+          ) WITH (
+              connector='kafka',
+              topic='technical-indicators',
+              properties.bootstrap.server='${KAFKA_BOOTSTRAP_SERVER}'
+          ) FORMAT PLAIN ENCODE JSON;
+          EOF
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Technical indicators table created successfully!"
+          else
+            echo "❌ Failed to create technical indicators table"
+            exit 1
+          fi
+          
+          # Verify table creation
+          echo "🔍 Verifying table creation..."
+          TABLE_COUNT=$(psql -h risingwave -p 4567 -d dev -U root -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'technical_indicators';" | tr -d ' \n')
+          
+          if [ "$TABLE_COUNT" = "1" ]; then
+            echo "✅ Table verification successful!"
+          else
+            echo "❌ Table verification failed"
+            exit 1
+          fi
+          
+          echo "🎉 RisingWave post-install setup completed successfully!"
+        env:
+        - name: PGPASSWORD
+          value: ""  # RisingWave doesn't require password for root user
+        resources:
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: risingwave-post-install
+  namespace: risingwave
+  labels:
+    app.kubernetes.io/name: risingwave-post-install
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: risingwave-post-install
+  labels:
+    app.kubernetes.io/name: risingwave-post-install
+rules:
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: risingwave-post-install
+  labels:
+    app.kubernetes.io/name: risingwave-post-install
+subjects:
+- kind: ServiceAccount
+  name: risingwave-post-install
+  namespace: risingwave
+roleRef:
+  kind: ClusterRole
+  name: risingwave-post-install
+  apiGroup: rbac.authorization.k8s.io 

@@ -126,22 +126,28 @@ prod-check-cluster:
 
 # Infrastructure deployment
 prod-deploy-infra:
-	@echo "🏗️ Deploying infrastructure components..."
+	@echo "🏗️ Deploying infrastructure using industry-standard script..."
 	@cd $(PROD_DIR) && \
 	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
-	echo "📦 Deploying Kafka..." && \
-	kubectl apply -f https://strimzi.io/install/latest?namespace=kafka && \
-	sleep 30 && \
-	kubectl apply -f manifests/kafka-and-topics.yaml && \
-	kubectl apply -f manifests/kafka-ui.yaml && \
-	echo "📊 Deploying Grafana..." && \
-	helm repo add grafana https://grafana.github.io/helm-charts --force-update && \
-	helm upgrade --install grafana grafana/grafana \
-		--namespace grafana --create-namespace \
-		--values manifests/infrastructure/grafana-values.yaml \
-		--timeout 600s --wait && \
-	kubectl apply -f manifests/infrastructure/grafana-dashboards.yaml && \
-	echo "✅ Infrastructure deployment complete"
+	if [ -f "./deploy_infrastructure.sh" ]; then \
+		echo "📜 Running deploy_infrastructure.sh script..." && \
+		bash ./deploy_infrastructure.sh; \
+	else \
+		echo "❌ deploy_infrastructure.sh not found, falling back to manual deployment..." && \
+		echo "📦 Deploying Kafka..." && \
+		kubectl apply -f https://strimzi.io/install/latest?namespace=kafka && \
+		sleep 30 && \
+		kubectl apply -f manifests/kafka-and-topics.yaml && \
+		kubectl apply -f manifests/kafka-ui.yaml && \
+		echo "📊 Deploying Grafana..." && \
+		helm repo add grafana https://grafana.github.io/helm-charts --force-update && \
+		helm upgrade --install grafana grafana/grafana \
+			--namespace grafana --create-namespace \
+			--values manifests/infrastructure/grafana-values.yaml \
+			--timeout 600s --wait && \
+		kubectl apply -f manifests/infrastructure/grafana-dashboards.yaml && \
+		echo "✅ Manual infrastructure deployment complete"; \
+	fi
 
 # Service deployment
 prod-deploy-services: prod-check-cluster
@@ -156,6 +162,12 @@ prod-deploy-services: prod-check-cluster
 	envsubst < manifests/services/candles/candles.yaml | kubectl apply -f - && \
 	echo "📈 Deploying technical-indicators service..." && \
 	kubectl apply -k manifests/services/technical_indicators/ && \
+	echo "🤖 Deploying predictor-training cronjob..." && \
+	source deployment.config && \
+	export PREDICTOR_TRAINING_IMAGE && \
+	envsubst < manifests/services/predictor_training/cronjob.yaml | kubectl apply -f - && \
+	kubectl apply -f manifests/services/predictor_training/secrets.yaml && \
+	kubectl apply -f manifests/services/predictor_training/configmap.yaml && \
 	echo "✅ All services deployed"
 
 # Individual service deployments
@@ -179,9 +191,19 @@ prod-deploy-technical-indicators: prod-check-cluster
 	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
 	kubectl apply -k manifests/services/technical_indicators/
 
+prod-deploy-predictor-training: prod-check-cluster
+	@echo "🤖 Deploying predictor-training cronjob..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export PREDICTOR_TRAINING_IMAGE && \
+	envsubst < manifests/services/predictor_training/cronjob.yaml | kubectl apply -f - && \
+	kubectl apply -f manifests/services/predictor_training/secrets.yaml && \
+	kubectl apply -f manifests/services/predictor_training/configmap.yaml
+
 # Main deployment command - now much simpler
 prod-deploy:
-	@if [ "$(infra)" = "true" ] || [ "$(infra)" = "all" ]; then \
+	@if [ "$(infra)" = "true" ] || [ "$(infra)" = "all" ] || [ "$(infra)" = "risingwave" ]; then \
 		$(MAKE) prod-deploy-infra; \
 	elif [ "$(services)" = "true" ] || [ "$(services)" = "all" ]; then \
 		$(MAKE) prod-deploy-services; \
@@ -191,6 +213,8 @@ prod-deploy:
 		$(MAKE) prod-deploy-candles; \
 	elif [ "$(service)" = "technical-indicators" ]; then \
 		$(MAKE) prod-deploy-technical-indicators; \
+	elif [ "$(service)" = "predictor-training" ]; then \
+		$(MAKE) prod-deploy-predictor-training; \
 	else \
 		$(MAKE) prod-deploy-services; \
 	fi
@@ -299,11 +323,13 @@ help:
 	@echo "☁️ Production Deployment (DigitalOcean):"
 	@echo "  prod-check-cluster          Check cluster connectivity"
 	@echo "  prod-deploy                 Deploy all services (default)"
-	@echo "  prod-deploy infra=true      Deploy only infrastructure"
+	@echo "  prod-deploy infra=true      Deploy all infrastructure (Kafka, RisingWave, MLflow, Grafana)"
+	@echo "  prod-deploy infra=risingwave Deploy RisingWave and dependencies with table setup"
 	@echo "  prod-deploy services=true   Deploy only services"
 	@echo "  prod-deploy service=trades  Deploy only trades service"
 	@echo "  prod-deploy service=candles Deploy only candles service"
 	@echo "  prod-deploy service=technical-indicators Deploy only technical-indicators service"
+	@echo "  prod-deploy service=predictor-training Deploy only predictor-training cronjob"
 	@echo ""
 	@echo "🔧 Production Utilities:"
 	@echo "  prod-get-endpoints          Get service endpoints"
@@ -325,6 +351,7 @@ help:
 	@echo "  make dev service=trades               # Run trades service locally"
 	@echo "  make deploy-for-dev service=candles   # Deploy candles to Kind"
 	@echo "  make ghcr-push service=trades         # Push trades image to registry"
+	@echo "  make ghcr-push service=predictor_training # Push predictor training image to registry"
 	@echo "  make prod-deploy                      # Deploy all services"
 	@echo "  make prod-deploy infra=true           # Deploy only infrastructure"
 	@echo "  make prod-deploy service=candles      # Deploy only candles service"

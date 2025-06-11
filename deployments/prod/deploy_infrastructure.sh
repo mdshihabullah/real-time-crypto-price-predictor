@@ -367,8 +367,12 @@ print_service_endpoints() {
     log "INFO" "Waiting for LoadBalancer IPs to be assigned..."
     sleep 30
     
+    # Kafka UI
+    local kafka_ui_ip=$(kubectl get svc -n kafka kafka-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "<pending>")
+    log "INFO" "Kafka UI: http://${kafka_ui_ip}"
+    
     # RisingWave Frontend
-    local rw_frontend_ip=$(kubectl get svc -n risingwave risingwave-frontend -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "<pending>")
+    local rw_frontend_ip=$(kubectl get svc -n risingwave risingwave -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "<pending>")
     log "INFO" "RisingWave Frontend: ${rw_frontend_ip}:4567 (SQL interface)"
     
     # MLflow
@@ -389,10 +393,11 @@ print_service_endpoints() {
     log "INFO" "  Password: ${MINIO_ROOT_PASSWORD}"
     
     # Print port-forward commands if LoadBalancer is pending
-    if [ "$rw_frontend_ip" = "<pending>" ] || [ "$mlflow_ip" = "<pending>" ] || [ "$grafana_ip" = "<pending>" ]; then
+    if [ "$kafka_ui_ip" = "<pending>" ] || [ "$rw_frontend_ip" = "<pending>" ] || [ "$mlflow_ip" = "<pending>" ] || [ "$grafana_ip" = "<pending>" ]; then
         log "INFO" "\n=== Alternative Access (Port Forwarding) ==="
         log "INFO" "Use these commands if LoadBalancer IPs are not available:"
-        log "INFO" "  # RisingWave Frontend: kubectl port-forward -n risingwave svc/risingwave-frontend 4567:4567"
+        log "INFO" "  # Kafka UI: kubectl port-forward -n kafka svc/kafka-ui 8080:80"
+        log "INFO" "  # RisingWave Frontend: kubectl port-forward -n risingwave svc/risingwave 4567:4567"
         log "INFO" "  # MLflow UI: kubectl port-forward -n mlflow svc/mlflow 5000:5000"
         log "INFO" "  # Grafana: kubectl port-forward -n grafana svc/grafana 3000:80"
     fi
@@ -403,7 +408,7 @@ verify_deployments() {
     log "INFO" "\n=== Verifying Deployments ==="
     
     local all_healthy=true
-    local namespaces=("risingwave" "mlflow" "grafana")
+    local namespaces=("kafka" "risingwave" "mlflow" "grafana")
     
     for ns in "${namespaces[@]}"; do
         log "INFO" "Checking deployments in namespace: $ns"
@@ -456,6 +461,7 @@ main() {
     
     # Create namespaces
     log "INFO" "=== Creating namespaces ==="
+    create_namespace "kafka" "Event streaming platform"
     create_namespace "risingwave" "Streaming database and storage backend"
     create_namespace "mlflow" "Machine learning experiment tracking"
     create_namespace "grafana" "Monitoring and visualization"
@@ -467,6 +473,44 @@ main() {
     
     if [ "$DEPLOY_LLM_SERVICES" = "true" ]; then
         create_namespace "llm-services" "Large language model services"
+    fi
+    
+    # Deploy Kafka (core streaming platform)
+    log "INFO" "=== Deploying Kafka ==="
+    
+    # Install Strimzi Kafka operator
+    log "INFO" "Installing Strimzi Kafka operator..."
+    if ! kubectl apply -f https://strimzi.io/install/latest?namespace=kafka; then
+        log "ERROR" "Failed to install Strimzi operator"
+        exit 1
+    fi
+    
+    # Wait for operator to be ready
+    log "INFO" "Waiting for Strimzi operator to be ready..."
+    if ! wait_for_pods "kafka" "name=strimzi-cluster-operator" 300; then
+        log "ERROR" "Strimzi operator failed to become ready"
+        exit 1
+    fi
+    
+    # Deploy Kafka cluster and topics
+    log "INFO" "Deploying Kafka cluster and topics..."
+    if ! kubectl apply -f "$MANIFESTS_DIR/../kafka-and-topics.yaml"; then
+        log "ERROR" "Failed to deploy Kafka cluster"
+        exit 1
+    fi
+    
+    # Deploy Kafka UI
+    log "INFO" "Deploying Kafka UI..."
+    if ! kubectl apply -f "$MANIFESTS_DIR/../kafka-ui.yaml"; then
+        log "ERROR" "Failed to deploy Kafka UI"
+        exit 1
+    fi
+    
+    # Wait for Kafka to be ready
+    log "INFO" "Waiting for Kafka cluster to be ready..."
+    if ! wait_for_pods "kafka" "app.kubernetes.io/name=kafka" 600; then
+        log "ERROR" "Kafka cluster failed to become ready"
+        exit 1
     fi
     
     # Deploy RisingWave (core streaming database)
@@ -483,6 +527,31 @@ main() {
     log "INFO" "Waiting for RisingWave components to be ready..."
     if ! wait_for_pods "risingwave" "app.kubernetes.io/instance=risingwave" 600; then
         log "ERROR" "RisingWave pods failed to become ready"
+        exit 1
+    fi
+    
+    # Run RisingWave post-install setup (table creation)
+    log "INFO" "=== Setting up RisingWave tables ==="
+    
+    # Apply the post-install job
+    log "INFO" "Running RisingWave post-install job..."
+    if kubectl apply -f "$MANIFESTS_DIR/risingwave-post-install-job.yaml"; then
+        log "INFO" "Post-install job created, waiting for completion..."
+        
+        # Wait for job to complete
+        if kubectl wait --for=condition=complete job/risingwave-post-install -n risingwave --timeout=300s; then
+            log "SUCCESS" "RisingWave table setup completed successfully!"
+            
+            # Show job logs for verification
+            log "INFO" "Post-install job logs:"
+            kubectl logs -n risingwave job/risingwave-post-install
+        else
+            log "ERROR" "RisingWave post-install job failed"
+            kubectl logs -n risingwave job/risingwave-post-install
+            exit 1
+        fi
+    else
+        log "ERROR" "Failed to create RisingWave post-install job"
         exit 1
     fi
     

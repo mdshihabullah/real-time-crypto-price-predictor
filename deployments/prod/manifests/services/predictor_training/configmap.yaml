@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: predictor-training-config
+  namespace: services
+data:
+  # RisingWave DB config
+  risingwave_host: "risingwave.risingwave.svc.cluster.local"
+  risingwave_port: "4567"
+  risingwave_db: "dev"
+  risingwave_user: "root"
+  risingwave_password: ""
+  
+  # MLflow settings
+  mlflow_tracking_uri: "mlflow-tracking.mlflow.svc.cluster.local:80"
+  mlflow_experiment_name: "crypto_price_prediction_prod"
+  
+  # Model training settings - optimized for production
+  prediction_horizon: "5" # in minutes
+  handle_na_strategy: "drop"
+  training_data_horizon: "30" # Use last 30 days of data for training
+  
+  # Cross-validation settings
+  n_splits: "5"
+  test_size: "0.2"
+  
+  # Hyperparameter tuning settings - reduced for production efficiency
+  n_trials: "10" # Reduced from 50 for faster execution
+  tuning_timeout: "3600" # 1 hour timeout
+  cv_folds: "3" # Reduced from 5 for faster execution
+  
+  # Model selection
+  top_n_models: "3" # Select top 3 models for tuning
+  
+  # Random state for reproducibility
+  random_state: "42" 

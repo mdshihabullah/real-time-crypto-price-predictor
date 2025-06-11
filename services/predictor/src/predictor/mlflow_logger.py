@@ -290,14 +290,13 @@ def log_data_to_mlflow(
         except MlflowException as e:
             logger.warning(f"Could not log data parameters: {str(e)}")
 
-    # Log sample data directly
+        # Log sample data directly
     try:
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
             artifact_name = f"{pair_name}_data_samples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             df.head(100).to_csv(tmp.name, index=False)
             mlflow.log_artifact(tmp.name, artifact_name)
             os.unlink(tmp.name)  # Clean up the temporary file
-
             logger.info(f"Logged data samples for {pair_name} to MLflow")
     except MlflowException as e:
         logger.warning(f"Could not log data samples: {str(e)}")

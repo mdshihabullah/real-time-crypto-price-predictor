@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: predictor-training
+  namespace: services
+
+resources:
+  - secrets.yaml
+  - configmap.yaml
+  - cronjob.yaml
+
+namespace: services 
