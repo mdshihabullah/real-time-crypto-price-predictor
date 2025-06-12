@@ -76,6 +76,11 @@ def fetch_technical_indicators_data(pair=None, limit=None):
     try:
         result: pd.DataFrame = conn.fetch(query, format=OutputFormat.DATAFRAME)
         logger.info(f"Retrieved {len(result)} rows of technical indicators data")
+        
+        # Convert timestamp columns to datetime for easier handling
+        if not result.empty and "window_start_ms" in result.columns:
+            result["timestamp"] = pd.to_datetime(result["window_start_ms"], unit="ms")
+        
         return result
     except Exception as e:
         logger.error(f"Error fetching data from RisingWave: {e}")
