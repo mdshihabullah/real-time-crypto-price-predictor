@@ -88,7 +88,7 @@ def run (
         # Define a tumbling window with grace period to handle late-arriving messages
         sdf.tumbling_window(
             duration_ms=timedelta(seconds=window_in_sec),
-            grace_ms=timedelta(seconds=10),  # Added grace period for late messages
+            grace_ms=timedelta(days=100),  # Large grace period for backfill processing
         )
         .reduce(reducer=update_candle, initializer=init_candle)
     )
