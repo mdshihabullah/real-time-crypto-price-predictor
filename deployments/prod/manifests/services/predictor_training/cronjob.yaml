@@ -59,14 +59,14 @@ spec:
             - secretRef:
                 name: predictor-training-secrets
             
-            # Resource constraints optimized for 2-node cluster
-            resources:
-              requests:
-                memory: "4Gi"
-                cpu: "300m"
-              limits:
-                memory: "6Gi"
-                cpu: "400m"
+            # Resource constraints removed for flexible scheduling on 3-node cluster
+            # resources:
+            #   requests:
+            #     memory: "4Gi"
+            #     cpu: "300m"
+            #   limits:
+            #     memory: "6Gi"
+            #     cpu: "400m"
             
             # Volume mounts for reports and model artifacts
             volumeMounts:

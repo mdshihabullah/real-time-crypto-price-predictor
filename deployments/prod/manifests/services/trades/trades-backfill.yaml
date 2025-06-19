@@ -1,0 +1,80 @@
+---
+# Trades Backfill Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trades-backfill
+  namespace: services
+---
+# Trades Backfill Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trades-backfill
+  namespace: services
+  labels:
+    app: trades-backfill
+spec:
+  template:
+    metadata:
+      labels:
+        app: trades-backfill
+    spec:
+      serviceAccountName: trades-backfill
+      restartPolicy: OnFailure
+      containers:
+      - name: trades-backfill
+        image: ${TRADES_IMAGE}
+        imagePullPolicy: Always
+        env:
+        # Only Kubernetes-specific variables, settings.env handles the rest
+        - name: KAFKA_BROKER_ADDRESS
+          value: crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: STATE_DIR
+          value: "/app/state"
+        - name: KRAKEN_API_MODE
+          value: "REST"
+        - name: LAST_N_DAYS
+          value: "90"
+        - name: ENABLE_PROGRESSIVE_STREAMING
+          value: "true"
+        - name: JOB_MODE
+          value: "backfill"
+        # Higher resource limits for backfill processing
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "2Gi"  # Higher limit for 90-day data processing
+            cpu: "1000m"
+        volumeMounts:
+        - name: trades-data
+          mountPath: /app/state
+        ports:
+        - containerPort: 8000
+          name: http
+      volumes:
+      - name: trades-data
+        persistentVolumeClaim:
+          claimName: trades-backfill-data
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+---
+# Trades Backfill PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trades-backfill-data
+  namespace: services
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: do-block-storage 

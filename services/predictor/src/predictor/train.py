@@ -233,7 +233,7 @@ if __name__ == "__main__":
                     # Log the baseline model's performance
                     logger.info(f"Baseline model MAE for {pair}: {baseline_mae:.6f}")
                     mlflow.log_metric("mae", baseline_mae)
-                    mlflow.log_param("model_type", "baseline")
+                    # Note: model_name already logged during run creation
                     mlflow.log_param("feature_columns", feature_columns)
 
                     # Save for comparison with tuned models

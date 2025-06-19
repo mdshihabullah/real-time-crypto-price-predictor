@@ -1,0 +1,18 @@
+[project]
+name = "deduplication"
+version = "0.1.0"
+description = "Deduplication service for Kafka streams"
+readme = "README.md"
+authors = [
+    { name = "Crypto Price Predictor Team", email = "admin@example.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka>=2.8.2",
+    "loguru>=0.7.3",
+    "quixstreams>=3.13.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build" 

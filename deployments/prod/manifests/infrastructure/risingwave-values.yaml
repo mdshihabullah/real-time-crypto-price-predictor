@@ -28,7 +28,7 @@ stateStore:
     bucket: risingwave
     authentication:
       username: minioadmin
-      password: "minioadmin123"
+      password: "minioadmin123secure"
 
 # Meta component - brain of RisingWave (reduced resources)
 metaComponent:
@@ -127,7 +127,7 @@ minio:
   
   auth:
     rootUser: "minioadmin"
-    rootPassword: "minioadmin123"
+    rootPassword: "minioadmin123secure"
   
   persistence:
     enabled: true

@@ -1,0 +1,156 @@
+---
+# Trades WebSocket Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trades-websocket
+  namespace: services
+---
+# RBAC for websocket to read job status
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: services
+  name: trades-websocket-job-reader
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trades-websocket-job-reader-binding
+  namespace: services
+subjects:
+- kind: ServiceAccount
+  name: trades-websocket
+  namespace: services
+roleRef:
+  kind: Role
+  name: trades-websocket-job-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# Trades WebSocket Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: trades-websocket
+  namespace: services
+spec:
+  selector:
+    app: trades-websocket
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+---
+# Trades WebSocket Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trades-websocket
+  namespace: services
+  labels:
+    app: trades-websocket
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: trades-websocket
+  template:
+    metadata:
+      labels:
+        app: trades-websocket
+    spec:
+      serviceAccountName: trades-websocket
+      # Init container waits for backfill job to complete
+      initContainers:
+      - name: wait-for-backfill-completion
+        image: bitnami/kubectl:1.28
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🔄 Waiting for backfill job to complete..."
+          kubectl wait --for=condition=complete job/trades-backfill -n services --timeout=7200s
+          echo "✅ Backfill job completed! Starting websocket service."
+      containers:
+      - name: trades-websocket
+        image: ${TRADES_IMAGE}
+        imagePullPolicy: Always
+        env:
+        # Only Kubernetes-specific variables, settings.env handles the rest
+        - name: KAFKA_BROKER_ADDRESS
+          value: crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: STATE_DIR
+          value: "/app/state"
+        - name: KRAKEN_API_MODE
+          value: "WS"
+        - name: JOB_MODE
+          value: "websocket"
+        # Optimized resources for WebSocket streaming
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 3
+          failureThreshold: 30
+        volumeMounts:
+        - name: trades-data
+          mountPath: /app/state
+        ports:
+        - containerPort: 8000
+          name: http
+      volumes:
+      - name: trades-data
+        persistentVolumeClaim:
+          claimName: trades-websocket-data
+      restartPolicy: Always
+---
+# Trades WebSocket PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trades-websocket-data
+  namespace: services
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: do-block-storage 

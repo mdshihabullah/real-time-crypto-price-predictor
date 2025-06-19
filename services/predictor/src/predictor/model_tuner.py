@@ -700,11 +700,10 @@ class ModelTuner:
                     prediction_sample = best_model.predict(input_example)
                     signature = infer_signature(input_example, prediction_sample)
 
-                    # Log the model with a distinct path
-                    model_path = f"models/{pair_name}/{model_name}"
+                    # Log the model with MLflow 3.1.0 compatible syntax
                     mlflow.sklearn.log_model(
                         best_model,
-                        model_path,
+                        name=f"models_{pair_name.replace('/', '_')}_{model_name}",
                         signature=signature,
                         input_example=input_example,
                     )
@@ -756,6 +755,70 @@ class ModelTuner:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None, {}, float("inf")
 
+    def log_tuned_models_to_mlflow(
+        self,
+        tuned_models: Dict[str, Dict[str, Any]],
+        pair_name: str,
+        X_test: pd.DataFrame,
+        feature_columns: List[str],
+    ) -> None:
+        """
+        Log hyperparameter-tuned models to MLflow using the log_models_to_mlflow function.
+        
+        Args:
+            tuned_models: Dictionary of tuned model info keyed by model name
+            pair_name: Name of the cryptocurrency pair
+            X_test: Test dataset for model signature inference
+            feature_columns: List of feature column names
+        """
+        from predictor.mlflow_logger import log_models_to_mlflow
+        
+        if not tuned_models:
+            logger.warning(f"No tuned models to log for {pair_name}")
+            return
+            
+        # Create a DataFrame with tuned model performance (similar to LazyPredict output)
+        tuned_models_data = []
+        trained_models_dict = {}
+        
+        for model_name, model_info in tuned_models.items():
+            if model_info["model"] is not None:
+                tuned_models_data.append({
+                    "Model": model_name,
+                    "mean_absolute_error_metric": model_info["mae"],
+                    "R-Squared": 0.0,  # Placeholder - could calculate if needed
+                    "RMSE": 0.0,  # Placeholder - could calculate if needed  
+                    "Time Taken": 0.0,  # Placeholder - could track if needed
+                    "Tuned": True,  # Mark as hyperparameter tuned
+                })
+                trained_models_dict[model_name] = model_info["model"]
+        
+        if not tuned_models_data:
+            logger.warning(f"No valid tuned models to log for {pair_name}")
+            return
+            
+        # Create DataFrame sorted by MAE (best first)
+        tuned_models_df = pd.DataFrame(tuned_models_data)
+        tuned_models_df = tuned_models_df.sort_values(by="mean_absolute_error_metric", ascending=True)
+        
+        # Get top model names
+        top_tuned_models = tuned_models_df["Model"].tolist()
+        
+        logger.info(f"Logging {len(tuned_models_df)} hyperparameter-tuned models for {pair_name}")
+        
+        # Use the enhanced log_models_to_mlflow function with actual trained models
+        log_models_to_mlflow(
+            models_df=tuned_models_df,
+            pair_name=pair_name,
+            top_n_models=len(tuned_models_df),
+            top_models_list=top_tuned_models,
+            trained_models=trained_models_dict,  # Pass the actual tuned models
+            X_test=X_test,
+            feature_columns=feature_columns
+        )
+        
+        logger.success(f"Successfully logged {len(tuned_models_df)} hyperparameter-tuned models for {pair_name}")
+
     def tune_top_models(
         self,
         top_models: Dict[str, List[str]],
@@ -796,6 +859,9 @@ class ModelTuner:
                 "params": None,
                 "mae": float("inf"),
             }
+            
+            # Track all tuned models for this pair
+            all_tuned_models = {}
 
             # Log that we're starting hyperparameter tuning for this pair
             logger.info(
@@ -857,17 +923,22 @@ class ModelTuner:
                             parent_run_id=parent_run.info.run_id,
                         )
 
-                        # Update best model if this one is better
-                        if (
-                            tuned_model is not None
-                            and test_mae < best_model_info["mae"]
-                        ):
-                            best_model_info = {
-                                "model_name": model_name,
+                        # Store this tuned model
+                        if tuned_model is not None:
+                            all_tuned_models[model_name] = {
                                 "model": tuned_model,
                                 "params": best_params,
                                 "mae": test_mae,
                             }
+                            
+                            # Update best model if this one is better
+                            if test_mae < best_model_info["mae"]:
+                                best_model_info = {
+                                    "model_name": model_name,
+                                    "model": tuned_model,
+                                    "params": best_params,
+                                    "mae": test_mae,
+                                }
 
                     except Exception as e:
                         logger.error(f"Error tuning {model_name} for {pair}: {str(e)}")
@@ -915,16 +986,38 @@ class ModelTuner:
                         )
                         signature = infer_signature(input_example, prediction_sample)
 
-                        model_path = f"models/{pair}/best_model"
-                        mlflow.sklearn.log_model(
+                        # Step 1: Log the model WITHOUT registration using MLflow 3.1.0 syntax
+                        model_info = mlflow.sklearn.log_model(
                             best_model_info["model"],
-                            model_path,
-                            registered_model_name=f"{pair}_best_model",
+                            name=f"best_model_{pair.replace('/', '_')}",
                             signature=signature,
                             input_example=input_example,
                         )
+                        
+                        # Step 2: Register the model manually using the Model Registry client API
+                        from mlflow.tracking import MlflowClient
+                        client = MlflowClient()
+                        registered_model_name = f"{pair}_best_model"
+                        
+                        # Create or get the registered model
+                        try:
+                            client.create_registered_model(registered_model_name)
+                            logger.info(f"Created new registered model: {registered_model_name}")
+                        except Exception as ex:
+                            if "already exists" in str(ex).lower():
+                                logger.info(f"Registered model {registered_model_name} already exists")
+                            else:
+                                raise ex
+
+                        # Register this model version
+                        model_version = client.create_model_version(
+                            name=registered_model_name,
+                            source=model_info.model_uri,
+                            run_id=mlflow.active_run().info.run_id
+                        )
+                        
                         logger.info(
-                            f"Registered best model {best_model_info['model_name']} for {pair}"
+                            f"Registered best model {best_model_info['model_name']} for {pair} as version {model_version.version}"
                         )
                     except Exception as e:
                         logger.warning(f"Error registering best model: {str(e)}")
@@ -934,6 +1027,27 @@ class ModelTuner:
 
                     # Log tuning completion status as a metric
                     mlflow.log_metric("tuning_completed", 1)
+                    
+                # Log all tuned models using the enhanced log_models_to_mlflow function
+                if all_tuned_models:
+                    try:
+                        feature_columns = list(X_train.columns)
+                        # Ensure X_test is a DataFrame with proper column names
+                        if isinstance(X_test, pd.DataFrame):
+                            X_test_df = X_test
+                        else:
+                            X_test_df = pd.DataFrame(X_test, columns=feature_columns)
+                        
+                        self.log_tuned_models_to_mlflow(
+                            all_tuned_models,
+                            pair,
+                            X_test_df,
+                            feature_columns
+                        )
+                    except Exception as e:
+                        logger.error(f"Error logging tuned models for {pair}: {str(e)}")
+                        import traceback
+                        logger.debug(f"Traceback: {traceback.format_exc()}")
 
             # Store best model for this pair
             best_tuned_models[pair] = best_model_info

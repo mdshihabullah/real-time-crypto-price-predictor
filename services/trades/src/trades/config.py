@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     kafka_broker_address: str
     kafka_topic: str
     kraken_api_mode: Literal["REST", "WS"]
-    last_n_days: int
-    enable_progressive_streaming: bool
+    last_n_days: int = 3
+    enable_progressive_streaming: bool = True
+    job_mode: Literal["backfill", "websocket"] = "websocket"
 
 config = Settings()
 

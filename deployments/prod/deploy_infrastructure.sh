@@ -535,6 +535,10 @@ main() {
     
     # Apply the post-install job
     log "INFO" "Running RisingWave post-install job..."
+    # Delete existing job if it exists (Jobs are immutable)
+    kubectl delete job risingwave-post-install -n risingwave --ignore-not-found=true
+    sleep 2
+    
     if kubectl apply -f "$MANIFESTS_DIR/risingwave-post-install-job.yaml"; then
         log "INFO" "Post-install job created, waiting for completion..."
         

@@ -172,10 +172,83 @@ prod-deploy-services: prod-check-cluster
 
 # Individual service deployments
 prod-deploy-trades: prod-check-cluster
-	@echo "🚀 Deploying trades service..."
+	@echo "🚀 Deploying trades services (backfill + websocket)..."
 	@cd $(PROD_DIR) && \
 	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
-	kubectl apply -k manifests/services/trades/
+	source deployment.config && \
+	export TRADES_IMAGE && \
+	envsubst < manifests/services/trades/trades-backfill.yaml | kubectl apply -f - && \
+	envsubst < manifests/services/trades/trades-websocket.yaml | kubectl apply -f -
+
+# Deploy trades with orchestrated sequence (backfill first, then websocket)
+prod-deploy-trades-orchestrated: prod-check-cluster
+	@echo "🚀 Deploying trades with orchestrated sequence..."
+	@echo "📋 Step 1: Deploying backfill job first..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export TRADES_IMAGE && \
+	envsubst < manifests/services/trades/trades-backfill.yaml | kubectl apply -f - && \
+	echo "⏳ Step 2: Waiting for backfill job to complete..." && \
+	kubectl wait --for=condition=complete job/trades-backfill -n services --timeout=3600s && \
+	echo "✅ Backfill job completed successfully!" && \
+	echo "📋 Step 3: Deploying websocket service..." && \
+	envsubst < manifests/services/trades/trades-websocket.yaml | kubectl apply -f - && \
+	echo "⏳ Step 4: Waiting for websocket deployment to be ready..." && \
+	kubectl wait --for=condition=available deployment/trades-websocket -n services --timeout=300s && \
+	echo "✅ Trades orchestration completed successfully!"
+
+# Deploy only the backfill job
+prod-deploy-trades-backfill: prod-check-cluster
+	@echo "📦 Deploying trades backfill job only..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export TRADES_IMAGE && \
+	envsubst < manifests/services/trades/trades-backfill.yaml | kubectl apply -f -
+
+# Deploy only the websocket service
+prod-deploy-trades-websocket: prod-check-cluster
+	@echo "🌐 Deploying trades websocket service only..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export TRADES_IMAGE && \
+	envsubst < manifests/services/trades/trades-websocket.yaml | kubectl apply -f -
+
+# Monitor backfill job progress
+prod-monitor-backfill:
+	@echo "👀 Monitoring backfill job progress..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "📊 Job Status:" && \
+	kubectl get job trades-backfill -n services -o wide && \
+	echo "" && \
+	echo "📄 Recent Logs:" && \
+	kubectl logs -n services job/trades-backfill --tail=50 -f
+
+# Check trades services status
+prod-trades-status:
+	@echo "📋 Checking trades services status..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "🔍 Jobs:" && \
+	kubectl get jobs -n services -l app=trades-backfill -o wide && \
+	echo "" && \
+	echo "🔍 Deployments:" && \
+	kubectl get deployments -n services -l app=trades-websocket -o wide && \
+	echo "" && \
+	echo "🔍 Pods:" && \
+	kubectl get pods -n services -l 'app in (trades-backfill,trades-websocket)' -o wide
+
+# Clean up old trades deployments before orchestrated deployment
+prod-cleanup-trades:
+	@echo "🧹 Cleaning up existing trades deployments..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	kubectl delete deployment trades trades-websocket -n services --ignore-not-found=true && \
+	kubectl delete job trades-backfill -n services --ignore-not-found=true && \
+	echo "✅ Cleanup completed"
 
 prod-deploy-candles: prod-check-cluster
 	@echo "🕯️ Deploying candles service..."
@@ -189,7 +262,9 @@ prod-deploy-technical-indicators: prod-check-cluster
 	@echo "📈 Deploying technical-indicators service..."
 	@cd $(PROD_DIR) && \
 	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
-	kubectl apply -k manifests/services/technical_indicators/
+	source deployment.config && \
+	export TECHNICAL_INDICATORS_IMAGE && \
+	envsubst < manifests/services/technical_indicators/technical_indicators.yaml | kubectl apply -f -
 
 prod-deploy-predictor-training: prod-check-cluster
 	@echo "🤖 Deploying predictor-training cronjob..."
@@ -201,12 +276,60 @@ prod-deploy-predictor-training: prod-check-cluster
 	kubectl apply -f manifests/services/predictor_training/secrets.yaml && \
 	kubectl apply -f manifests/services/predictor_training/configmap.yaml
 
+prod-deploy-structurizr: prod-check-cluster
+	@echo "🏗️ Deploying structurizr service..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export STRUCTURIZR_IMAGE && \
+	envsubst < manifests/structurizr/structurizr.yaml | kubectl apply -f -
+
+# Deploy trades with parallel start (websocket waits for backfill completion)
+prod-deploy-trades-parallel: prod-check-cluster
+	@echo "🚀 Deploying trades with parallel start..."
+	@echo "📋 Starting backfill job and websocket deployment simultaneously..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	source deployment.config && \
+	export TRADES_IMAGE && \
+	echo "🔄 Starting backfill job..." && \
+	envsubst < manifests/services/trades/trades-backfill.yaml | kubectl apply -f - && \
+	echo "🔄 Starting websocket deployment (will wait for backfill completion)..." && \
+	envsubst < manifests/services/trades/trades-websocket.yaml | kubectl apply -f - && \
+	echo "✅ Both services started! Websocket will begin once backfill completes." && \
+	echo "💡 Monitor progress with: make prod-monitor-trades-parallel"
+
+# Monitor parallel trades deployment progress  
+prod-monitor-trades-parallel:
+	@echo "👀 Monitoring parallel trades deployment progress..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	echo "📊 Backfill Job Status:" && \
+	kubectl get job trades-backfill -n services -o wide && \
+	echo "" && \
+	echo "📊 Websocket Deployment Status:" && \
+	kubectl get deployment trades-websocket -n services -o wide && \
+	echo "" && \
+	echo "📊 Pod Status:" && \
+	kubectl get pods -n services -l 'app in (trades-backfill,trades-websocket)' -o wide && \
+	echo "" && \
+	echo "🔍 Websocket init container logs (waiting for backfill):" && \
+	if kubectl get pods -n services -l app=trades-websocket --no-headers -o custom-columns=":metadata.name" | head -1 | xargs -I {} kubectl logs -n services {} -c wait-for-backfill-completion 2>/dev/null; then \
+		echo "Init container logs shown above."; \
+	else \
+		echo "No websocket pod ready yet or init container not started."; \
+	fi
+
 # Main deployment command - now much simpler
 prod-deploy:
 	@if [ "$(infra)" = "true" ] || [ "$(infra)" = "all" ] || [ "$(infra)" = "risingwave" ]; then \
 		$(MAKE) prod-deploy-infra; \
 	elif [ "$(services)" = "true" ] || [ "$(services)" = "all" ]; then \
 		$(MAKE) prod-deploy-services; \
+	elif [ "$(service)" = "trades" ] && [ "$(orchestrated)" = "true" ]; then \
+		$(MAKE) prod-deploy-trades-orchestrated; \
+	elif [ "$(service)" = "trades" ] && [ "$(parallel)" = "true" ]; then \
+		$(MAKE) prod-deploy-trades-parallel; \
 	elif [ "$(service)" = "trades" ]; then \
 		$(MAKE) prod-deploy-trades; \
 	elif [ "$(service)" = "candles" ]; then \
@@ -215,8 +338,24 @@ prod-deploy:
 		$(MAKE) prod-deploy-technical-indicators; \
 	elif [ "$(service)" = "predictor-training" ]; then \
 		$(MAKE) prod-deploy-predictor-training; \
+	elif [ "$(service)" = "structurizr" ]; then \
+		$(MAKE) prod-deploy-structurizr; \
 	else \
 		$(MAKE) prod-deploy-services; \
+	fi
+
+# Deploy complete cluster from scratch
+prod-create-cluster:
+	@echo "🚀 Creating new DigitalOcean cluster and deploying complete infrastructure and services..."
+	@cd $(PROD_DIR) && \
+	export KUBECONFIG=$$(pwd)/do-k8s-kubeconfig.yaml && \
+	if [ -f "./create-do-k8s-cluster.sh" ]; then \
+		echo "📜 Running create-do-k8s-cluster.sh script..." && \
+		bash ./create-do-k8s-cluster.sh && \
+		echo "✅ Cluster creation and deployment completed successfully"; \
+	else \
+		echo "❌ create-do-k8s-cluster.sh not found" && \
+		exit 1; \
 	fi
 
 # Production deployment utilities
@@ -321,15 +460,29 @@ help:
 	@echo "  ghcr-push service=<name>     Build and push production image"
 	@echo ""
 	@echo "☁️ Production Deployment (DigitalOcean):"
+	@echo "  prod-create-cluster         Create new cluster and deploy complete infrastructure and services"
 	@echo "  prod-check-cluster          Check cluster connectivity"
 	@echo "  prod-deploy                 Deploy all services (default)"
 	@echo "  prod-deploy infra=true      Deploy all infrastructure (Kafka, RisingWave, MLflow, Grafana)"
 	@echo "  prod-deploy infra=risingwave Deploy RisingWave and dependencies with table setup"
 	@echo "  prod-deploy services=true   Deploy only services"
-	@echo "  prod-deploy service=trades  Deploy only trades service"
+	@echo "  prod-deploy service=trades orchestrated=true  Deploy trades with orchestrated sequence (backfill → websocket)"
+	@echo "  prod-deploy service=trades parallel=true      Deploy trades with parallel start (websocket waits for backfill) (RECOMMENDED)"
+	@echo "  prod-deploy service=trades  Deploy trades services (both backfill + websocket)"
 	@echo "  prod-deploy service=candles Deploy only candles service"
 	@echo "  prod-deploy service=technical-indicators Deploy only technical-indicators service"
 	@echo "  prod-deploy service=predictor-training Deploy only predictor-training cronjob"
+	@echo "  prod-deploy service=structurizr    Deploy only structurizr service"
+	@echo ""
+	@echo "📦 Trades Service Specific Commands:"
+	@echo "  prod-deploy-trades-parallel      Deploy trades with parallel start (websocket waits for backfill) (RECOMMENDED)"
+	@echo "  prod-deploy-trades-orchestrated  Deploy trades with orchestrated sequence"
+	@echo "  prod-deploy-trades-backfill      Deploy only the backfill job"
+	@echo "  prod-deploy-trades-websocket     Deploy only the websocket service"
+	@echo "  prod-monitor-trades-parallel     Monitor parallel trades deployment progress"
+	@echo "  prod-monitor-backfill            Monitor backfill job progress"
+	@echo "  prod-trades-status               Check trades services status"
+	@echo "  prod-cleanup-trades              Clean up existing trades deployments"
 	@echo ""
 	@echo "🔧 Production Utilities:"
 	@echo "  prod-get-endpoints          Get service endpoints"
@@ -352,9 +505,14 @@ help:
 	@echo "  make deploy-for-dev service=candles   # Deploy candles to Kind"
 	@echo "  make ghcr-push service=trades         # Push trades image to registry"
 	@echo "  make ghcr-push service=predictor_training # Push predictor training image to registry"
+	@echo "  make prod-create-cluster              # Create new cluster and deploy everything"
 	@echo "  make prod-deploy                      # Deploy all services"
 	@echo "  make prod-deploy infra=true           # Deploy only infrastructure"
+	@echo "  make prod-deploy service=trades orchestrated=true  # Deploy trades with orchestration (recommended)"
 	@echo "  make prod-deploy service=candles      # Deploy only candles service"
+	@echo "  make prod-deploy-trades-orchestrated  # Deploy trades with backfill → websocket sequence"
+	@echo "  make prod-monitor-backfill            # Monitor backfill progress in real-time"
+	@echo "  make prod-trades-status               # Check trades services status"
 	@echo "  make prod-get-endpoints               # Get production service URLs"
 	@echo ""
 	@echo "📚 For detailed production deployment guide:"

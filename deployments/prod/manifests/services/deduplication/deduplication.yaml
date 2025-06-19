@@ -1,0 +1,93 @@
+---
+# Deduplication Service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deduplication
+  namespace: services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deduplication
+  namespace: services
+spec:
+  selector:
+    app: deduplication
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deduplication
+  namespace: services
+  labels:
+    app: deduplication
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: deduplication
+  template:
+    metadata:
+      labels:
+        app: deduplication
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: deduplication
+      containers:
+      - name: deduplication
+        image: ${DEDUPLICATION_IMAGE}
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: INPUT_TOPICS
+          value: "trades,candles,technical-indicators"
+        - name: OUTPUT_TOPICS
+          value: "trades-dedupe,candles-dedupe,technical-indicators-dedupe"
+        - name: CACHE_TTL_SECONDS
+          value: "3600"  # 1 hour
+        - name: CACHE_CLEANUP_INTERVAL
+          value: "300"   # 5 minutes
+        - name: HEALTH_PORT
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "300m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 2
+        ports:
+        - containerPort: 8080
+          name: http 

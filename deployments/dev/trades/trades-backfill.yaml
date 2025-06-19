@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: services
+  name: trades-backfill
+  labels:
+    app: trades-backfill
+spec:
+  template:
+    metadata:
+      labels:
+        app: trades-backfill
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: trades-backfill
+        image: trades:dev
+        imagePullPolicy: Never # Use the local image
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: kafka-e11b-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: KAFKA_TOPIC
+          value: "trades"
+        - name: KRAKEN_API_MODE
+          value: "REST"
+        - name: LAST_N_DAYS
+          value: "90"
+        - name: ENABLE_PROGRESSIVE_STREAMING
+          value: "true"
+        - name: JOB_MODE
+          value: "backfill"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1 

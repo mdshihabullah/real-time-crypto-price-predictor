@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: services
+  name: trades-websocket
+  labels:
+    app: trades-websocket
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trades-websocket
+  template:
+    metadata:
+      labels:
+        app: trades-websocket
+    spec:
+      containers:
+      - name: trades-websocket
+        image: trades:dev
+        imagePullPolicy: Never # Use the local image
+        env:
+        - name: KAFKA_BROKER_ADDRESS
+          value: kafka-e11b-kafka-bootstrap.kafka.svc.cluster.local:9092
+        - name: KAFKA_TOPIC
+          value: "trades"
+        - name: KRAKEN_API_MODE
+          value: "WS"
+        - name: JOB_MODE
+          value: "websocket"
+        ports:
+        - containerPort: 8000
+          name: health
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 3
+          failureThreshold: 30
+      restartPolicy: Always 

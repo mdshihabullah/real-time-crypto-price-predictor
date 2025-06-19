@@ -24,6 +24,9 @@ spec:
         - |
           set -euo pipefail
           
+          # Install netcat for connectivity testing
+          apt-get update && apt-get install -y netcat-openbsd
+          
           echo "🔍 RisingWave Post-Install Setup Starting..."
           
           # Wait for RisingWave to be ready
@@ -38,15 +41,26 @@ spec:
           echo "🔍 Discovering Kafka bootstrap server..."
           KAFKA_BOOTSTRAP_SERVER=""
           
-          # Try to find Kafka service in kafka namespace
-          if kubectl get svc -n kafka --no-headers 2>/dev/null | grep -q kafka-bootstrap; then
-            KAFKA_SERVICE=$(kubectl get svc -n kafka --no-headers | grep kafka-bootstrap | head -1 | awk '{print $1}')
-            KAFKA_BOOTSTRAP_SERVER="${KAFKA_SERVICE}.kafka.svc.cluster.local:9092"
-            echo "✅ Found Kafka service: $KAFKA_BOOTSTRAP_SERVER"
-          else
-            echo "❌ No Kafka service found in kafka namespace"
-            exit 1
-          fi
+          # Use the known Kafka service name from our cluster configuration
+          KAFKA_BOOTSTRAP_SERVER="crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
+          echo "🔍 Using Kafka service: $KAFKA_BOOTSTRAP_SERVER"
+          
+          # Test connectivity to Kafka service directly
+          echo "⏳ Testing Kafka connectivity..."
+          for i in {1..30}; do
+            if nc -z crypto-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local 9092 2>/dev/null; then
+              echo "✅ Kafka bootstrap service is reachable"
+              break
+            else
+              echo "   Testing Kafka connectivity (attempt $i/30)..."
+              sleep 10
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "❌ Kafka service not reachable after 300 seconds"
+              exit 1
+            fi
+          done
           
           # Create technical_indicators table
           echo "📊 Creating technical_indicators table..."
@@ -109,12 +123,13 @@ spec:
           
           # Verify table creation
           echo "🔍 Verifying table creation..."
-          TABLE_COUNT=$(psql -h risingwave -p 4567 -d dev -U root -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'technical_indicators';" | tr -d ' \n')
-          
-          if [ "$TABLE_COUNT" = "1" ]; then
+          # Check if table exists (case-insensitive and more robust)
+          if psql -h risingwave -p 4567 -d dev -U root -t -c "SELECT 1 FROM information_schema.tables WHERE LOWER(table_name) = 'technical_indicators' LIMIT 1;" | grep -q 1; then
             echo "✅ Table verification successful!"
           else
             echo "❌ Table verification failed"
+            echo "Checking available tables:"
+            psql -h risingwave -p 4567 -d dev -U root -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
             exit 1
           fi
           

@@ -332,6 +332,10 @@ main() {
     # Wait for Kafka bootstrap service
     wait_for_kafka_bootstrap
     
+    # Wait longer for Kafka to be fully ready before deploying infrastructure
+    log "INFO" "Waiting additional time for Kafka to be fully operational..."
+    sleep 60
+    
     # Deploy infrastructure components (RisingWave, MLflow, Grafana)
     log "INFO" "=== Deploying infrastructure components ==="
     if [ -f "./deploy_infrastructure.sh" ]; then

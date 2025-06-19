@@ -141,13 +141,14 @@ class ModelTrainer:
                     os.environ["MLFLOW_TRACKING_URI"] = mlflow_uri
                     logger.debug(f"Restored MLflow URI: {mlflow_uri}")
 
-                # Log model metrics with the enhanced function
+                # Log model metrics (LazyPredict performance only - no trained models yet)
                 try:
                     log_models_to_mlflow(
                         models_df=models,
                         pair_name=pair_name,
                         top_n_models=self.top_n_models,
                         top_models_list=top_models,
+                        # No trained_models - these will be created during hyperparameter tuning
                     )
                 except Exception as e:
                     logger.error(f"Error logging models to MLflow: {str(e)}")

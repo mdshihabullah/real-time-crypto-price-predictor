@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: services
+resources:
+  - ../../manifests/services/candles
+patches:
+- patch: |
+    - op: replace
+      path: /spec/template/spec/containers/0/image
+      value: ghcr.io/mdshihabullah/real-time-crypto-price-predictor/candles:beta-08-06-2025-09-16-015dfe6
+  target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: candles

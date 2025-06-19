@@ -10,7 +10,7 @@ import contextlib
 import os
 import tempfile
 from datetime import datetime
-from typing import Generator, List, Optional, Tuple, Union
+from typing import Generator, List, Optional, Tuple, Union, Dict, Any
 
 import mlflow
 import pandas as pd
@@ -24,10 +24,15 @@ from predictor.config import config
 
 def setup_mlflow():
     """Set up MLflow tracking"""
+    # Ensure we have the correct URI format
+    base_uri = config.mlflow_tracking_uri
+    if not base_uri.startswith(('http://', 'https://')):
+        base_uri = f"http://{base_uri}"
+
     tracking_uri = (
         f"http://{config.mlflow_tracking_username}:"
         f"{config.mlflow_tracking_password}@"
-        f"{config.mlflow_tracking_uri}"
+        f"{base_uri.replace('http://', '').replace('https://', '')}"
     )
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_registry_uri(tracking_uri)
@@ -161,23 +166,27 @@ def active_run(
         else:
             run_name = f"{pair_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    # First, check if there's already an active run that's specifically for this pair
+    # First, check if there's already an active run that's specifically for this pair AND model
     current_run = mlflow.active_run()
     if current_run is not None:
-        # Only use the current run if it's for this pair (check params)
+        # Only use the current run if it's for this pair AND model (check params)
         try:
             client = mlflow.tracking.MlflowClient()
             run_data = client.get_run(current_run.info.run_id)
-            if run_data.data.params.get("pair") == pair_name:
+            run_pair = run_data.data.params.get("pair")
+            run_model = run_data.data.params.get("model_name")
+            
+            # Check if this run matches both pair and model
+            if run_pair == pair_name and run_model == model_name:
                 logger.debug(
-                    f"Using current active run for {pair_name}: {current_run.info.run_id}"
+                    f"Using current active run for {pair_name}/{model_name}: {current_run.info.run_id}"
                 )
                 yield current_run
                 return
             else:
-                # End the current run if it's for a different pair to avoid mixing metrics
+                # End the current run if it's for a different pair or model to avoid mixing metrics
                 logger.debug(
-                    f"Ending active run for different pair: {current_run.info.run_id}"
+                    f"Ending active run for different pair/model: {current_run.info.run_id} (current: {run_pair}/{run_model}, requested: {pair_name}/{model_name})"
                 )
                 mlflow.end_run()
         except MlflowException as e:
@@ -196,31 +205,35 @@ def active_run(
             logger.error(f"Error using provided run ID {run_id}: {str(e)}")
             # Fall through to other options
 
-    # Option 2: Use the existing run for this pair
-    existing_run_id = _PAIR_RUNS.get(pair_name)
+    # Option 2: Use the existing run for this pair and model combination
+    run_key = f"{pair_name}_{model_name}" if model_name else pair_name
+    existing_run_id = _PAIR_RUNS.get(run_key)
     if existing_run_id:
         try:
             run = mlflow.start_run(run_id=existing_run_id)
-            logger.debug(f"Using existing run for {pair_name}: {existing_run_id}")
+            logger.debug(f"Using existing run for {run_key}: {existing_run_id}")
             yield run
             return
         except MlflowException as e:
             logger.error(f"Error using existing run {existing_run_id}: {str(e)}")
             # Remove the invalid run ID
-            _PAIR_RUNS.pop(pair_name, None)
+            _PAIR_RUNS.pop(run_key, None)
             # Fall through to creating a new run
 
     # Option 3: Create a new run
     try:
         run = mlflow.start_run(run_name=run_name)
-        # Store this run for this pair
-        _PAIR_RUNS[pair_name] = run.info.run_id
-        logger.debug(f"Created new run for {pair_name}: {run.info.run_id}")
+        # Store this run for this pair-model combination
+        run_key = f"{pair_name}_{model_name}" if model_name else pair_name
+        _PAIR_RUNS[run_key] = run.info.run_id
+        logger.debug(f"Created new run for {run_key}: {run.info.run_id}")
 
         # Log essential parameters
         try:
             mlflow.log_param("pair", pair_name)
             mlflow.log_param("creation_timestamp", datetime.now().isoformat())
+            if model_name:
+                mlflow.log_param("model_name", model_name)
         except MlflowException as param_error:
             logger.warning(f"Could not log initial parameters: {str(param_error)}")
 
@@ -234,11 +247,14 @@ def active_run(
                 f"{run_name}_retry_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             )
             run = mlflow.start_run(run_name=fallback_name)
-            _PAIR_RUNS[pair_name] = run.info.run_id
-            logger.debug(f"Created fallback run: {run.info.run_id} for {pair_name}")
+            run_key = f"{pair_name}_{model_name}" if model_name else pair_name
+            _PAIR_RUNS[run_key] = run.info.run_id
+            logger.debug(f"Created fallback run: {run.info.run_id} for {run_key}")
 
             try:
                 mlflow.log_param("pair", pair_name)
+                if model_name:
+                    mlflow.log_param("model_name", model_name)
             except MlflowException:
                 pass  # Just ignore errors at this point
 
@@ -410,6 +426,9 @@ def log_models_to_mlflow(
     pair_name: str,
     top_n_models: Optional[int] = None,
     top_models_list: Optional[List[str]] = None,
+    trained_models: Optional[Dict[str, Any]] = None,
+    X_test: Optional[pd.DataFrame] = None,
+    feature_columns: Optional[List[str]] = None,
 ) -> None:
     """
     Log model comparison results from LazyRegressor to MLflow for a specific pair.
@@ -418,6 +437,7 @@ def log_models_to_mlflow(
     - Complete model metrics table as CSV
     - Best model information as parameters
     - Top N models performance metrics as parameters
+    - **ACTUAL TRAINED MODELS** using mlflow.sklearn.log_model()
     - Visualizations of model performance (coming soon)
 
     Args:
@@ -425,6 +445,9 @@ def log_models_to_mlflow(
         pair_name (str): Name of the cryptocurrency pair
         top_n_models (int, optional): Number of top models to log metrics for
         top_models_list (List[str], optional): List of top model names (if already selected)
+        trained_models (Dict[str, Any], optional): Dictionary of trained model objects keyed by model name
+        X_test (pd.DataFrame, optional): Test dataset for model signature inference
+        feature_columns (List[str], optional): List of feature column names
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -473,6 +496,39 @@ def log_models_to_mlflow(
 
                 mlflow.log_params(best_model_metrics)
 
+                # **NEW: Actually log the best model using mlflow.sklearn.log_model()**
+                if trained_models and best_model_name in trained_models:
+                    try:
+                        # Create model signature if test data is provided
+                        signature = None
+                        if X_test is not None and not X_test.empty:
+                            dummy_predictions = trained_models[best_model_name].predict(X_test.head(1))
+                            signature = infer_signature(X_test.head(1), dummy_predictions)
+
+                        # Log the actual trained model (using 'name' parameter for MLflow 3.1.0)
+                        mlflow.sklearn.log_model(
+                            trained_models[best_model_name],
+                            name=f"best_model_{pair_name.replace('/', '_')}",
+                            signature=signature,
+                            input_example=X_test.head(1) if X_test is not None and not X_test.empty else None,
+                        )
+                        
+                        # Log model metadata
+                        mlflow.log_param(f"{pair_name}_best_model_logged", True)
+                        if feature_columns:
+                            mlflow.log_param(f"{pair_name}_feature_columns", feature_columns)
+                        
+                        logger.success(f"Successfully logged best model {best_model_name} for {pair_name}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to log best model {best_model_name} for {pair_name}: {str(e)}")
+                        mlflow.log_param(f"{pair_name}_best_model_logged", False)
+                        mlflow.log_param(f"{pair_name}_model_log_error", str(e))
+                else:
+                    logger.warning(f"No trained model found for best model {best_model_name} - only logging metrics")
+                    mlflow.log_param(f"{pair_name}_best_model_logged", False)
+                    mlflow.log_param(f"{pair_name}_model_log_reason", "No trained model provided")
+
             # Log detailed metrics for top N models
             for i, model_name in enumerate(top_models_list):
                 model_row = models_df[models_df["Model"] == model_name]
@@ -494,6 +550,28 @@ def log_models_to_mlflow(
                                 logger.warning(
                                     f"Failed to log metric {metric} for {model_name}: {str(e)}"
                                 )
+
+                    # **NEW: Log individual top models if available**
+                    if trained_models and model_name in trained_models:
+                        try:
+                            # Create model signature if test data is provided
+                            signature = None
+                            if X_test is not None and not X_test.empty:
+                                dummy_predictions = trained_models[model_name].predict(X_test.head(1))
+                                signature = infer_signature(X_test.head(1), dummy_predictions)
+
+                            # Log the trained model (using 'name' parameter for MLflow 3.1.0)
+                            mlflow.sklearn.log_model(
+                                trained_models[model_name],
+                                name=f"model_{i+1}_{pair_name.replace('/', '_')}_{model_name.replace(' ', '_')}",
+                                signature=signature,
+                                input_example=X_test.head(1) if X_test is not None and not X_test.empty else None,
+                            )
+                            
+                            logger.info(f"Successfully logged model {model_name} (rank {i+1}) for {pair_name}")
+                            
+                        except Exception as e:
+                            logger.warning(f"Failed to log model {model_name} for {pair_name}: {str(e)}")
 
             # Log full model comparison as CSV artifact
             with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
@@ -615,36 +693,45 @@ def register_model(
             dummy_predictions = model.predict(X_test.head(1))
             signature = infer_signature(X_test.head(1), dummy_predictions)
 
-            # Log the model to MLflow
-            mlflow.sklearn.log_model(
-                model,
-                "model",
-                registered_model_name=registered_model_name,
-                signature=signature,
-            )
+        # Step 1: Log the model WITHOUT registration (using 'name' parameter for MLflow 3.1.0)
+        model_info = mlflow.sklearn.log_model(
+            model,
+            name="model",
+            signature=signature,
+        )
 
-            # Log model metadata within this specific run
-            mlflow.log_param("model_name", model_name)
-            mlflow.log_param("prediction_horizon", prediction_horizon)
-            mlflow.log_param("feature_columns", feature_columns)
-            mlflow.log_metric("mae", mae)
+        # Log model metadata within this specific run
+        # Note: model_name is already logged during run creation
+        mlflow.log_param("prediction_horizon", prediction_horizon)
+        mlflow.log_param("feature_columns", feature_columns)
+        mlflow.log_metric("mae", mae)
 
-            logger.info(f"Successfully registered model {registered_model_name}")
-
-        # Get the model URI
+        # Step 2: Register the model manually using the Model Registry client API
         client = MlflowClient()
-        model_versions = client.search_model_versions(f"name='{registered_model_name}'")
-        if model_versions:
-            # Get the latest version
-            latest_version = max([int(mv.version) for mv in model_versions])
-            model_uri = f"models:/{registered_model_name}/{latest_version}"
-            logger.info(f"Model registered with URI: {model_uri}")
-            return model_uri
-        else:
-            logger.warning(
-                f"Model {registered_model_name} was registered but no versions found"
-            )
-            return None
+        
+        # Create or get the registered model
+        try:
+            client.create_registered_model(registered_model_name)
+            logger.info(f"Created new registered model: {registered_model_name}")
+        except MlflowException as e:
+            if "already exists" in str(e).lower():
+                logger.info(f"Registered model {registered_model_name} already exists")
+            else:
+                raise e
+
+        # Register this model version
+        model_version = client.create_model_version(
+            name=registered_model_name,
+            source=model_info.model_uri,
+            run_id=mlflow.active_run().info.run_id
+        )
+
+        logger.info(f"Successfully registered model {registered_model_name} version {model_version.version}")
+
+        # Return the model URI
+        model_uri = f"models:/{registered_model_name}/{model_version.version}"
+        logger.info(f"Model registered with URI: {model_uri}")
+        return model_uri
 
     except MlflowException as e:
         logger.error(f"Error registering model {model_name} for {pair_name}: {str(e)}")
